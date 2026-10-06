@@ -89,10 +89,15 @@ closest matches from a database of known connectors, with a similarity score.
 ## Git notes
 
 - Claude commits on branch `claude/connector-identification-app-dljcow`.
-- Max's local clone is on `main` and has no commits yet.
+- GitHub `main` was created (by mistake, at the same commit as the work branch) when we tried
+  to open PR #1; it therefore already contains everything up to the database. Max chose to skip
+  a PR for that chunk. **From the search feature onward, all work goes through pull requests**:
+  work lands on the branch, Max reviews the PR on GitHub, Max clicks Merge.
+- To check: GitHub Settings -> Branches -> default branch should be `main`.
+- Max's local clone: `git switch main` then `git pull` gets the merged work.
 
 ## Next step
 
-Max pulls, runs the app, saves 2-3 test connectors, reloads the page to confirm they persist.
-Then: the search - extract features from a drawing and rank saved connectors by similarity
-(Max to decide: what the similarity score should emphasise; see chat).
+Search: Max chooses what the similarity score should emphasise (see chat). Then build feature
+extraction (crop to the drawing, resize, compare layers + pin count + plug/socket), a /api/search
+route, a Search button and a ranked top-5 list with scores. First PR for this work.
