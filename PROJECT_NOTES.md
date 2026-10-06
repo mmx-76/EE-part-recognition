@@ -46,6 +46,7 @@ closest matches from a database of known connectors, with a similarity score.
 | Python + Flask | Max already knows Python; Flask is the smallest web framework |
 | SQLite | One file, nothing to install, plenty for this size |
 | Shape stamps are shortcuts that paint cells (drag-to-size) | Stored data stays the same flat grid; full connector templates belong to the database, not the canvas |
+| Database file is not committed; starting data will live in a committed seed file loaded into it | Keeps the repo clean and lets anyone rebuild the database |
 | Plain HTML/JavaScript canvas, no front-end framework | Fewer moving parts for a beginner |
 
 ## Hard problems (raised early)
@@ -80,6 +81,10 @@ closest matches from a database of known connectors, with a similarity score.
 - Details form (all optional): pin count, plug/socket, industry. Collapsible "What the app will
   store" panel shows the data as JSON + 32 text rows (. H S P O K). Industry is collected now but
   not used by search until Milestone 2.
+- SQLite database (`db.py`, file `connectors.db`, git-ignored): add / list / get / delete with
+  server-side validation; web routes /api/connectors in `app.py`; page has Name box,
+  "Add to database", and a Saved connectors list with Load/Delete. 7 automated tests in
+  `tests/test_db.py` (run `py -m unittest discover tests`).
 
 ## Git notes
 
@@ -88,5 +93,6 @@ closest matches from a database of known connectors, with a similarity score.
 
 ## Next step
 
-Max pulls the latest code and tries the form. Then: the database - SQLite table for connectors,
-save/load functions, and an "Add to database" button (name + current drawing + details).
+Max pulls, runs the app, saves 2-3 test connectors, reloads the page to confirm they persist.
+Then: the search - extract features from a drawing and rank saved connectors by similarity
+(Max to decide: what the similarity score should emphasise; see chat).

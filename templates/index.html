@@ -25,6 +25,17 @@
     #details input, #details select { font-size: 14px; padding: 4px; }
     #stored { margin-bottom: 30px; font-size: 14px; }
     #storedText { font-size: 9px; line-height: 9px; background: #f4f4f4; padding: 8px; overflow-x: auto; }
+    #save { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 16px; }
+    #save label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+    #save input { font-size: 14px; padding: 6px; width: 240px; }
+    #saveMessage { font-size: 14px; }
+    #saveMessage.error { color: #b00020; }
+    #saveMessage.ok { color: #1a7f37; }
+    #savedList { padding-left: 0; list-style: none; font-size: 14px; }
+    #savedList li { padding: 6px 0; border-bottom: 1px solid #ddd; display: flex; gap: 8px;
+                    align-items: center; flex-wrap: wrap; }
+    #savedList .info { flex: 1; min-width: 180px; }
+    #savedList button { padding: 4px 10px; cursor: pointer; }
     #brush { margin-bottom: 12px; font-size: 14px; }
     #counts { margin: 10px 0; font-size: 14px; color: #333; }
     button.action { padding: 8px 14px; font-size: 14px; cursor: pointer; }
@@ -88,6 +99,17 @@
       </select>
     </label>
   </fieldset>
+
+  <div id="save">
+    <label>Name
+      <input type="text" id="connectorName" maxlength="100" placeholder="e.g. DE-9 male">
+    </label>
+    <button class="action" id="saveButton">Add to database</button>
+    <span id="saveMessage"></span>
+  </div>
+
+  <h2>Saved connectors</h2>
+  <ul id="savedList"></ul>
 
   <details id="stored">
     <summary>What the app will store (for the curious)</summary>
@@ -415,6 +437,84 @@
       makeEmptyGrid();
       draw();
     });
+
+    // ---- Saving to / loading from the database ------------------------------
+    const LETTER_TO_ID = {};
+    for (const element of ELEMENTS) LETTER_TO_ID[element.code] = element.id;
+
+    function showSaveMessage(text, kind) {
+      const message = document.getElementById("saveMessage");
+      message.textContent = text;
+      message.className = kind;
+    }
+
+    async function refreshSavedList() {
+      const response = await fetch("/api/connectors");
+      const connectors = await response.json();
+      const list = document.getElementById("savedList");
+      list.innerHTML = "";
+      if (connectors.length === 0) {
+        list.innerHTML = "<li>Nothing saved yet.</li>";
+        return;
+      }
+      for (const connector of connectors) {
+        const item = document.createElement("li");
+        const info = document.createElement("span");
+        info.className = "info";
+        info.textContent = connector.name + " \u2014 " +
+          (connector.pins === null ? "? pins" : connector.pins + " pins") + ", " +
+          connector.gender + ", " + connector.industry;
+        const loadButton = document.createElement("button");
+        loadButton.textContent = "Load";
+        loadButton.addEventListener("click", () => loadConnector(connector.id));
+        const deleteButton = document.createElement("button");
+        deleteButton.textContent = "Delete";
+        deleteButton.addEventListener("click", () => deleteConnector(connector));
+        item.append(info, loadButton, deleteButton);
+        list.appendChild(item);
+      }
+    }
+
+    async function saveConnector() {
+      const drawing = currentDrawing();
+      const response = await fetch("/api/connectors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: document.getElementById("connectorName").value,
+          details: drawing.details,
+          rows: drawing.rows,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        showSaveMessage(result.error, "error");
+        return;
+      }
+      showSaveMessage("Saved!", "ok");
+      refreshSavedList();
+    }
+
+    async function loadConnector(id) {
+      const response = await fetch("/api/connectors/" + id);
+      const connector = await response.json();
+      grid = connector.rows.map(line => Array.from(line).map(letter => LETTER_TO_ID[letter]));
+      document.getElementById("connectorName").value = connector.name;
+      document.getElementById("detailPins").value = connector.pins === null ? "" : connector.pins;
+      document.getElementById("detailGender").value = connector.gender;
+      document.getElementById("detailIndustry").value = connector.industry;
+      showSaveMessage("Loaded " + connector.name + ".", "ok");
+      draw();
+    }
+
+    async function deleteConnector(connector) {
+      if (!confirm("Delete " + connector.name + " from the database?")) return;
+      await fetch("/api/connectors/" + connector.id, { method: "DELETE" });
+      refreshSavedList();
+    }
+
+    document.getElementById("saveButton").addEventListener("click", saveConnector);
+    refreshSavedList();
 
     makeEmptyGrid();
     draw();

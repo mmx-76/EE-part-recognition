@@ -10,7 +10,7 @@ similarity.
 
 ## Status
 
-Phase 0 (setup and scope). No app code yet. See [PROJECT_NOTES.md](PROJECT_NOTES.md) for the
+Milestone 1 in progress: drawing canvas, details form and database are working; search is next. See [PROJECT_NOTES.md](PROJECT_NOTES.md) for the
 scope, decisions, roadmap and next step.
 
 ## Planned tech
@@ -19,6 +19,13 @@ scope, decisions, roadmap and next step.
 - A browser page with a paintable grid canvas
 - SQLite database of connectors (a single file, no server to install)
 
-## Running it
+## Running it (Windows PowerShell)
 
-Not runnable yet. Instructions will be added once the first version exists.
+```
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+py app.py
+```
+
+Then open http://127.0.0.1:5000. Run the tests with `py -m unittest discover tests`.
