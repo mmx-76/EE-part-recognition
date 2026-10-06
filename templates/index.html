@@ -16,6 +16,10 @@
     .shape { padding: 6px 10px; border: 2px solid #888; border-radius: 6px; background: #f4f4f4;
              cursor: pointer; font-size: 14px; }
     .shape.selected { border-color: #000; background: #dde8ff; }
+    #patterns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+    #patternOptions { display: none; margin-left: 10px; font-size: 14px; }
+    #patternOptions input { width: 55px; }
+    #hint { min-height: 20px; margin-bottom: 8px; font-size: 13px; color: #b00020; }
     #brush { margin-bottom: 12px; font-size: 14px; }
     #counts { margin: 10px 0; font-size: 14px; color: #333; }
     button.action { padding: 8px 14px; font-size: 14px; cursor: pointer; }
@@ -30,6 +34,14 @@
     <strong>Shape:</strong>
     <label><input type="checkbox" id="filled"> Filled</label>
   </div>
+  <div id="patterns">
+    <strong>Pin pattern:</strong>
+    <span id="patternOptions">
+      <label>Pins <input type="number" id="pinCount" value="9" min="1" max="64"></label>
+      <label id="rowsLabel">Rows <input type="number" id="pinRows" value="2" min="1" max="32"></label>
+    </span>
+  </div>
+  <div id="hint"></div>
   <div id="brush">
     <strong>Freehand brush size:</strong>
     <select id="brushSize">
@@ -128,7 +140,67 @@
           insideTrapezoid(row, col, h, w) && insideRounded(row, col, h, w) },
       { name: "Trapezoid", inside: insideTrapezoid },
     ];
+    // ---- Pin patterns -------------------------------------------------------
+    // A pattern returns a list of [row, col] cells (relative to its box) where pins go.
+    // spread(count, length) picks `count` evenly spaced positions from 0 to length-1.
+    function spread(count, length) {
+      if (count === 1) return [Math.round((length - 1) / 2)];
+      const positions = [];
+      for (let i = 0; i < count; i++) positions.push(Math.round(i * (length - 1) / (count - 1)));
+      return positions;
+    }
+
+    const PATTERNS = [
+      { name: "Row", rowsInput: false, points: (h, w, n) =>
+          spread(n, w).map(c => [Math.round((h - 1) / 2), c]) },
+      { name: "Grid", rowsInput: true, points: (h, w, n, rows) => {
+          const points = [];
+          for (const r of spread(rows, h)) for (const c of spread(n, w)) points.push([r, c]);
+          return points;
+      } },
+      { name: "Ring", rowsInput: false, points: (h, w, n) => {
+          const points = [];
+          for (let i = 0; i < n; i++) {
+            const angle = 2 * Math.PI * i / n;  // starts at the top, goes clockwise
+            points.push([Math.round((h - 1) / 2 - (h - 1) / 2 * Math.cos(angle)),
+                         Math.round((w - 1) / 2 + (w - 1) / 2 * Math.sin(angle))]);
+          }
+          return points;
+      } },
+      // Two rows like a D-sub connector: the top row has the extra pin if the total is odd,
+      // and the bottom row's pins sit in the gaps between the top row's pins.
+      { name: "Staggered rows (D-sub)", rowsInput: false, points: (h, w, n) => {
+          const topCount = Math.ceil(n / 2), bottomCount = Math.floor(n / 2);
+          const topCols = spread(topCount, w);
+          const points = topCols.map(c => [0, c]);
+          for (let i = 0; i < bottomCount; i++) {
+            points.push([h - 1, Math.round((topCols[i] + topCols[i + 1]) / 2)]);
+          }
+          return points;
+      } },
+    ];
+
     let selectedShape = SHAPES[0];
+    const isDragTool = () => Boolean(selectedShape.inside || selectedShape.points);
+
+    // Place a pin pattern in the box between two corner cells. Returns a warning if pins overlap.
+    function stampPattern(pattern, startRow, startCol, endRow, endCol, elementId) {
+      const top = Math.min(startRow, endRow), left = Math.min(startCol, endCol);
+      const height = Math.abs(endRow - startRow) + 1, width = Math.abs(endCol - startCol) + 1;
+      const count = Math.max(1, Number(document.getElementById("pinCount").value) || 1);
+      const rows = Math.max(1, Number(document.getElementById("pinRows").value) || 1);
+      const points = pattern.points(height, width, count, rows);
+      const used = new Set();
+      for (const [r, c] of points) {
+        grid[top + r][left + c] = elementId;
+        used.add(r + "," + c);
+      }
+      const wanted = pattern.name === "Grid" ? count * rows : count;
+      document.getElementById("hint").textContent = used.size < wanted
+        ? "Box too small: only " + used.size + " of " + wanted + " pins fit without overlapping."
+        : "";
+    }
+
 
     // Paint a shape into the grid, filling the box between two corner cells.
     function stampShape(shape, startRow, startCol, endRow, endCol, elementId, filled) {
@@ -169,8 +241,12 @@
     function updateShapePreview(event) {
       const cell = cellAt(event);
       grid = copyGrid(gridBeforeDrag);
-      stampShape(selectedShape, dragStart.row, dragStart.col, cell.row, cell.col,
-                 selectedId, document.getElementById("filled").checked);
+      if (selectedShape.points) {
+        stampPattern(selectedShape, dragStart.row, dragStart.col, cell.row, cell.col, selectedId);
+      } else {
+        stampShape(selectedShape, dragStart.row, dragStart.col, cell.row, cell.col,
+                   selectedId, document.getElementById("filled").checked);
+      }
       draw();
     }
 
@@ -205,7 +281,7 @@
 
     canvas.addEventListener("pointerdown", e => {
       painting = true;
-      if (selectedShape.inside) {
+      if (isDragTool()) {
         dragStart = cellAt(e);
         gridBeforeDrag = copyGrid(grid);
         updateShapePreview(e);
@@ -216,7 +292,7 @@
     });
     canvas.addEventListener("pointermove", e => {
       if (!painting) return;
-      if (selectedShape.inside) {
+      if (isDragTool()) {
         updateShapePreview(e);
       } else {
         paintLineTo(cellAt(e));
@@ -241,20 +317,34 @@
       toolsDiv.appendChild(button);
     }
 
-    // Build the shape buttons (placed before the "Filled" checkbox).
+    // Build the shape and pin-pattern buttons.
     const shapesDiv = document.getElementById("shapes");
+    const patternsDiv = document.getElementById("patterns");
     const filledLabel = shapesDiv.querySelector("label");
-    for (const shape of SHAPES) {
-      const button = document.createElement("button");
-      button.className = "shape" + (shape === selectedShape ? " selected" : "");
-      button.textContent = shape.name;
-      button.addEventListener("click", () => {
-        selectedShape = shape;
-        for (const b of shapesDiv.querySelectorAll("button")) b.classList.remove("selected");
-        button.classList.add("selected");
-      });
-      shapesDiv.insertBefore(button, filledLabel);
+    const patternOptions = document.getElementById("patternOptions");
+
+    function chooseShape(shape, button) {
+      selectedShape = shape;
+      document.getElementById("hint").textContent = "";
+      for (const b of document.querySelectorAll("#shapes button, #patterns button")) {
+        b.classList.remove("selected");
+      }
+      button.classList.add("selected");
+      patternOptions.style.display = shape.points ? "inline" : "none";
+      document.getElementById("rowsLabel").style.display = shape.rowsInput ? "inline" : "none";
     }
+
+    function addToolButtons(list, container, before) {
+      for (const shape of list) {
+        const button = document.createElement("button");
+        button.className = "shape" + (shape === selectedShape ? " selected" : "");
+        button.textContent = shape.name;
+        button.addEventListener("click", () => chooseShape(shape, button));
+        container.insertBefore(button, before);
+      }
+    }
+    addToolButtons(SHAPES, shapesDiv, filledLabel);
+    addToolButtons(PATTERNS, patternsDiv, patternOptions);
 
     document.getElementById("clear").addEventListener("click", () => {
       makeEmptyGrid();

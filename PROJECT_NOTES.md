@@ -73,7 +73,10 @@ closest matches from a database of known connectors, with a similarity score.
 - Shape stamps (drag-to-size box): rectangle, rounded rectangle, circle/oval, D-shape,
   trapezoid, with a Filled/outline toggle. Buttons renamed "Plastic housing" / "Metal shell".
 - "Empty" renamed "Eraser (empty)" (works with freehand and shapes); freehand brush size
-  selector (1/2/3/5/8); fast drags no longer leave gaps.
+  selector (1/2/3/5/8); fast drags no longer leave gaps. Eraser is its own dashed button.
+- Pin-pattern stamps (drag a box, set "Pins" number): Row, Grid (extra "Rows" box), Ring,
+  Staggered rows (D-sub style, top row gets the extra pin). Uses the selected element, so it
+  works for Socket too. Warns if the box is too small for the pin count.
 
 ## Git notes
 
@@ -82,6 +85,5 @@ closest matches from a database of known connectors, with a similarity score.
 
 ## Next step
 
-Max pulls the latest code, tries the brush/eraser. Then build pin-pattern stamps (row of N,
-grid of N x M, ring of N) - Max to decide spacing/behaviour (see chat). After that: details form
-(pin count, plug/socket).
+Max pulls the latest code, tries the pin patterns, reports feedback. Then: details form
+(pin count, plug/socket) beside the grid.
