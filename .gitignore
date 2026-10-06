@@ -1,0 +1,7 @@
+# Python virtual environment and caches
+.venv/
+__pycache__/
+*.pyc
+
+# Local database file (we will decide later whether to commit it)
+*.db
