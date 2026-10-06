@@ -9,6 +9,7 @@
     #tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
     .tool { padding: 8px 12px; border: 3px solid transparent; border-radius: 6px;
             cursor: pointer; font-size: 14px; }
+    .tool.eraser { border: 3px dashed #c00; font-weight: bold; margin-right: 18px; }
     .tool.selected { border-color: #000; }
     canvas { border: 1px solid #888; touch-action: none; cursor: crosshair; max-width: 100%; }
     #shapes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px; }
@@ -50,7 +51,7 @@
 
     // Each element type has a number (stored in the grid), a name and a colour.
     const ELEMENTS = [
-      { id: 0, name: "Eraser (empty)",   colour: "#ffffff", text: "#000" },
+      { id: 0, name: "Eraser (empty)",   colour: "#ffffff", text: "#000", eraser: true },
       { id: 1, name: "Plastic housing", colour: "#4a4a4a", text: "#fff" },
       { id: 2, name: "Metal shell",   colour: "#b8c0c8", text: "#000" },
       { id: 3, name: "Pin",     colour: "#e0a800", text: "#000" },
@@ -227,8 +228,9 @@
     const toolsDiv = document.getElementById("tools");
     for (const element of ELEMENTS) {
       const button = document.createElement("button");
-      button.className = "tool" + (element.id === selectedId ? " selected" : "");
-      button.textContent = element.name;
+      button.className = "tool" + (element.id === selectedId ? " selected" : "")
+                       + (element.eraser ? " eraser" : "");
+      button.textContent = element.eraser ? "\u232B Eraser" : element.name;
       button.style.background = element.colour;
       button.style.color = element.text;
       button.addEventListener("click", () => {
