@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connector Finder</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; max-width: 700px; }
+    #tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .tool { padding: 8px 12px; border: 3px solid transparent; border-radius: 6px;
+            cursor: pointer; font-size: 14px; }
+    .tool.selected { border-color: #000; }
+    canvas { border: 1px solid #888; touch-action: none; cursor: crosshair; max-width: 100%; }
+    #counts { margin: 10px 0; font-size: 14px; color: #333; }
+    button.action { padding: 8px 14px; font-size: 14px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Connector Finder</h1>
+  <p>Pick an element, then click or drag on the grid to paint the connector's mating face.</p>
+
+  <div id="tools"></div>
+  <canvas id="grid"></canvas>
+  <div id="counts"></div>
+  <button class="action" id="clear">Clear grid</button>
+
+  <script>
+    // The drawing is a 32 x 32 grid. Each cell holds one number saying what is in it.
+    const GRID_SIZE = 32;
+    const CELL_PIXELS = 18;
+
+    // Each element type has a number (stored in the grid), a name and a colour.
+    const ELEMENTS = [
+      { id: 0, name: "Empty",   colour: "#ffffff", text: "#000" },
+      { id: 1, name: "Housing", colour: "#4a4a4a", text: "#fff" },
+      { id: 2, name: "Shell",   colour: "#b8c0c8", text: "#000" },
+      { id: 3, name: "Pin",     colour: "#e0a800", text: "#000" },
+      { id: 4, name: "Socket",  colour: "#1f6feb", text: "#fff" },
+      { id: 5, name: "Key",     colour: "#d93025", text: "#fff" },
+    ];
+
+    // grid[row][column] -> element id. Starts all Empty (0).
+    let grid = [];
+    function makeEmptyGrid() {
+      grid = [];
+      for (let row = 0; row < GRID_SIZE; row++) {
+        grid.push(new Array(GRID_SIZE).fill(0));
+      }
+    }
+
+    let selectedId = 1;
+    const canvas = document.getElementById("grid");
+    const ctx = canvas.getContext("2d");
+    canvas.width = GRID_SIZE * CELL_PIXELS;
+    canvas.height = GRID_SIZE * CELL_PIXELS;
+
+    function draw() {
+      for (let row = 0; row < GRID_SIZE; row++) {
+        for (let col = 0; col < GRID_SIZE; col++) {
+          ctx.fillStyle = ELEMENTS[grid[row][col]].colour;
+          ctx.fillRect(col * CELL_PIXELS, row * CELL_PIXELS, CELL_PIXELS, CELL_PIXELS);
+          ctx.strokeStyle = "#ddd";
+          ctx.strokeRect(col * CELL_PIXELS, row * CELL_PIXELS, CELL_PIXELS, CELL_PIXELS);
+        }
+      }
+      showCounts();
+    }
+
+    function showCounts() {
+      const totals = new Array(ELEMENTS.length).fill(0);
+      for (const row of grid) for (const cell of row) totals[cell]++;
+      document.getElementById("counts").textContent =
+        ELEMENTS.slice(1).map(e => e.name + ": " + totals[e.id] + " cells").join("   ");
+    }
+
+    // Work out which cell the pointer is over and paint it.
+    function paintAt(event) {
+      const box = canvas.getBoundingClientRect();
+      const scale = canvas.width / box.width;  // canvas may be shrunk on small screens
+      const col = Math.floor((event.clientX - box.left) * scale / CELL_PIXELS);
+      const row = Math.floor((event.clientY - box.top) * scale / CELL_PIXELS);
+      if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return;
+      if (grid[row][col] !== selectedId) {
+        grid[row][col] = selectedId;
+        draw();
+      }
+    }
+
+    let painting = false;
+    canvas.addEventListener("pointerdown", e => { painting = true; paintAt(e); });
+    canvas.addEventListener("pointermove", e => { if (painting) paintAt(e); });
+    window.addEventListener("pointerup", () => { painting = false; });
+
+    // Build the element buttons.
+    const toolsDiv = document.getElementById("tools");
+    for (const element of ELEMENTS) {
+      const button = document.createElement("button");
+      button.className = "tool" + (element.id === selectedId ? " selected" : "");
+      button.textContent = element.name;
+      button.style.background = element.colour;
+      button.style.color = element.text;
+      button.addEventListener("click", () => {
+        selectedId = element.id;
+        for (const b of toolsDiv.children) b.classList.remove("selected");
+        button.classList.add("selected");
+      });
+      toolsDiv.appendChild(button);
+    }
+
+    document.getElementById("clear").addEventListener("click", () => {
+      makeEmptyGrid();
+      draw();
+    });
+
+    makeEmptyGrid();
+    draw();
+  </script>
+</body>
+</html>

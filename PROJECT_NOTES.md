@@ -66,6 +66,9 @@ closest matches from a database of known connectors, with a similarity score.
 - GitHub repo created; cloned to Max's PC at `C:\Users\Max.Moir\EE-part-recognition`.
 - Scope and MVP agreed (grid painting, seed database, similarity ranking).
 - README.md and PROJECT_NOTES.md created.
+- Python 3.13 works via `py`; venv `.venv` created; Flask installed; hello-world page ran.
+- Paintable 32x32 grid page (templates/index.html) with 6 element types, drag painting,
+  per-element cell counts, Clear button.
 
 ## Git notes
 
@@ -74,5 +77,5 @@ closest matches from a database of known connectors, with a similarity score.
 
 ## Next step
 
-Max fetches the branch with the new files into his local clone and checks them in VS Code.
-Then Step 4: set up Python (virtual environment, install Flask) and run a "hello world" page.
+Max pulls the latest code (`git pull`), runs `py app.py`, tries the grid, and says whether the
+colours/behaviour are right. Then: add the details form (pin count, plug/socket) beside the grid.
