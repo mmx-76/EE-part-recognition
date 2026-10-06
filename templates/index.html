@@ -11,15 +11,23 @@
             cursor: pointer; font-size: 14px; }
     .tool.selected { border-color: #000; }
     canvas { border: 1px solid #888; touch-action: none; cursor: crosshair; max-width: 100%; }
+    #shapes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px; }
+    .shape { padding: 6px 10px; border: 2px solid #888; border-radius: 6px; background: #f4f4f4;
+             cursor: pointer; font-size: 14px; }
+    .shape.selected { border-color: #000; background: #dde8ff; }
     #counts { margin: 10px 0; font-size: 14px; color: #333; }
     button.action { padding: 8px 14px; font-size: 14px; cursor: pointer; }
   </style>
 </head>
 <body>
   <h1>Connector Finder</h1>
-  <p>Pick an element, then click or drag on the grid to paint the connector's mating face.</p>
+  <p>Pick an element, then paint freehand, or pick a shape and drag a box on the grid.</p>
 
   <div id="tools"></div>
+  <div id="shapes">
+    <strong>Shape:</strong>
+    <label><input type="checkbox" id="filled"> Filled</label>
+  </div>
   <canvas id="grid"></canvas>
   <div id="counts"></div>
   <button class="action" id="clear">Clear grid</button>
@@ -32,8 +40,8 @@
     // Each element type has a number (stored in the grid), a name and a colour.
     const ELEMENTS = [
       { id: 0, name: "Empty",   colour: "#ffffff", text: "#000" },
-      { id: 1, name: "Housing", colour: "#4a4a4a", text: "#fff" },
-      { id: 2, name: "Shell",   colour: "#b8c0c8", text: "#000" },
+      { id: 1, name: "Plastic housing", colour: "#4a4a4a", text: "#fff" },
+      { id: 2, name: "Metal shell",   colour: "#b8c0c8", text: "#000" },
       { id: 3, name: "Pin",     colour: "#e0a800", text: "#000" },
       { id: 4, name: "Socket",  colour: "#1f6feb", text: "#fff" },
       { id: 5, name: "Key",     colour: "#d93025", text: "#fff" },
@@ -73,23 +81,112 @@
         ELEMENTS.slice(1).map(e => e.name + ": " + totals[e.id] + " cells").join("   ");
     }
 
-    // Work out which cell the pointer is over and paint it.
-    function paintAt(event) {
+    // ---- Shapes -------------------------------------------------------------
+    // A shape is a function that says whether the cell at (row, col) is inside the shape,
+    // for a box that is `height` rows tall and `width` columns wide. (0,0) is the box's top-left.
+    function insideRounded(row, col, height, width) {
+      const radius = Math.max(1, Math.min(4, Math.floor(Math.min(height, width) / 3)));
+      // Which corner are we near? If not near any, the cell is inside.
+      const nearTop = row < radius, nearBottom = row >= height - radius;
+      const nearLeft = col < radius, nearRight = col >= width - radius;
+      if (!((nearTop || nearBottom) && (nearLeft || nearRight))) return true;
+      const centreRow = nearTop ? radius - 0.5 : height - radius - 0.5;
+      const centreCol = nearLeft ? radius - 0.5 : width - radius - 0.5;
+      const dRow = row - centreRow, dCol = col - centreCol;
+      return dRow * dRow + dCol * dCol <= radius * radius;
+    }
+
+    // Wide at the top, narrower at the bottom (like the metal shell of a D-sub connector).
+    function insideTrapezoid(row, col, height, width) {
+      const maxInset = Math.max(1, Math.round(width * 0.15));
+      const inset = Math.round(maxInset * (row / Math.max(1, height - 1)));
+      return col >= inset && col < width - inset;
+    }
+
+    const SHAPES = [
+      { name: "Freehand", inside: null },
+      { name: "Rectangle", inside: () => true },
+      { name: "Rounded rectangle", inside: insideRounded },
+      { name: "Circle / oval", inside: (row, col, height, width) => {
+          const x = (col + 0.5 - width / 2) / (width / 2);
+          const y = (row + 0.5 - height / 2) / (height / 2);
+          return x * x + y * y <= 1;
+      } },
+      { name: "D-shape", inside: (row, col, h, w) =>
+          insideTrapezoid(row, col, h, w) && insideRounded(row, col, h, w) },
+      { name: "Trapezoid", inside: insideTrapezoid },
+    ];
+    let selectedShape = SHAPES[0];
+
+    // Paint a shape into the grid, filling the box between two corner cells.
+    function stampShape(shape, startRow, startCol, endRow, endCol, elementId, filled) {
+      const top = Math.min(startRow, endRow), bottom = Math.max(startRow, endRow);
+      const left = Math.min(startCol, endCol), right = Math.max(startCol, endCol);
+      const height = bottom - top + 1, width = right - left + 1;
+      const isIn = (r, c) =>
+        r >= 0 && r < height && c >= 0 && c < width && shape.inside(r, c, height, width);
+      for (let r = 0; r < height; r++) {
+        for (let c = 0; c < width; c++) {
+          if (!isIn(r, c)) continue;
+          // For an outline, only keep cells that touch the outside of the shape.
+          const onEdge = !isIn(r - 1, c) || !isIn(r + 1, c) || !isIn(r, c - 1) || !isIn(r, c + 1);
+          if (filled || onEdge) grid[top + r][left + c] = elementId;
+        }
+      }
+    }
+
+    // ---- Mouse / touch ------------------------------------------------------
+    // Which cell is the pointer over? (Clamped so dragging off the edge still works.)
+    function cellAt(event) {
       const box = canvas.getBoundingClientRect();
       const scale = canvas.width / box.width;  // canvas may be shrunk on small screens
       const col = Math.floor((event.clientX - box.left) * scale / CELL_PIXELS);
       const row = Math.floor((event.clientY - box.top) * scale / CELL_PIXELS);
-      if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) return;
-      if (grid[row][col] !== selectedId) {
-        grid[row][col] = selectedId;
-        draw();
-      }
+      return {
+        row: Math.min(GRID_SIZE - 1, Math.max(0, row)),
+        col: Math.min(GRID_SIZE - 1, Math.max(0, col)),
+      };
     }
 
     let painting = false;
-    canvas.addEventListener("pointerdown", e => { painting = true; paintAt(e); });
-    canvas.addEventListener("pointermove", e => { if (painting) paintAt(e); });
-    window.addEventListener("pointerup", () => { painting = false; });
+    let dragStart = null;      // where a shape drag began
+    let gridBeforeDrag = null; // copy of the grid so the shape preview can be redrawn
+
+    function copyGrid(source) { return source.map(row => row.slice()); }
+
+    function updateShapePreview(event) {
+      const cell = cellAt(event);
+      grid = copyGrid(gridBeforeDrag);
+      stampShape(selectedShape, dragStart.row, dragStart.col, cell.row, cell.col,
+                 selectedId, document.getElementById("filled").checked);
+      draw();
+    }
+
+    canvas.addEventListener("pointerdown", e => {
+      painting = true;
+      if (selectedShape.inside) {
+        dragStart = cellAt(e);
+        gridBeforeDrag = copyGrid(grid);
+        updateShapePreview(e);
+      } else {
+        const cell = cellAt(e);
+        grid[cell.row][cell.col] = selectedId;
+        draw();
+      }
+    });
+    canvas.addEventListener("pointermove", e => {
+      if (!painting) return;
+      if (selectedShape.inside) {
+        updateShapePreview(e);
+      } else {
+        const cell = cellAt(e);
+        if (grid[cell.row][cell.col] !== selectedId) {
+          grid[cell.row][cell.col] = selectedId;
+          draw();
+        }
+      }
+    });
+    window.addEventListener("pointerup", () => { painting = false; dragStart = null; });
 
     // Build the element buttons.
     const toolsDiv = document.getElementById("tools");
@@ -105,6 +202,21 @@
         button.classList.add("selected");
       });
       toolsDiv.appendChild(button);
+    }
+
+    // Build the shape buttons (placed before the "Filled" checkbox).
+    const shapesDiv = document.getElementById("shapes");
+    const filledLabel = shapesDiv.querySelector("label");
+    for (const shape of SHAPES) {
+      const button = document.createElement("button");
+      button.className = "shape" + (shape === selectedShape ? " selected" : "");
+      button.textContent = shape.name;
+      button.addEventListener("click", () => {
+        selectedShape = shape;
+        for (const b of shapesDiv.querySelectorAll("button")) b.classList.remove("selected");
+        button.classList.add("selected");
+      });
+      shapesDiv.insertBefore(button, filledLabel);
     }
 
     document.getElementById("clear").addEventListener("click", () => {

@@ -45,6 +45,7 @@ closest matches from a database of known connectors, with a similarity score.
 | Starting database built by Claude (~20-30 connectors), grown via "Add" button | No clean free source exists; scraping is slow and legally grey |
 | Python + Flask | Max already knows Python; Flask is the smallest web framework |
 | SQLite | One file, nothing to install, plenty for this size |
+| Shape stamps are shortcuts that paint cells (drag-to-size) | Stored data stays the same flat grid; full connector templates belong to the database, not the canvas |
 | Plain HTML/JavaScript canvas, no front-end framework | Fewer moving parts for a beginner |
 
 ## Hard problems (raised early)
@@ -69,6 +70,8 @@ closest matches from a database of known connectors, with a similarity score.
 - Python 3.13 works via `py`; venv `.venv` created; Flask installed; hello-world page ran.
 - Paintable 32x32 grid page (templates/index.html) with 6 element types, drag painting,
   per-element cell counts, Clear button.
+- Shape stamps (drag-to-size box): rectangle, rounded rectangle, circle/oval, D-shape,
+  trapezoid, with a Filled/outline toggle. Buttons renamed "Plastic housing" / "Metal shell".
 
 ## Git notes
 
@@ -77,5 +80,7 @@ closest matches from a database of known connectors, with a similarity score.
 
 ## Next step
 
-Max pulls the latest code (`git pull`), runs `py app.py`, tries the grid, and says whether the
-colours/behaviour are right. Then: add the details form (pin count, plug/socket) beside the grid.
+Max pulls the latest code (`git pull`), refreshes the page, tries the shape stamps and reports
+what feels wrong or missing (e.g. D-shape orientation, extra shapes). Then:
+1. Pin-pattern stamps (row of N, grid, ring of N) - if Max wants them.
+2. Details form (pin count, plug/socket) beside the grid.
