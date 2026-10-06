@@ -72,6 +72,8 @@ closest matches from a database of known connectors, with a similarity score.
   per-element cell counts, Clear button.
 - Shape stamps (drag-to-size box): rectangle, rounded rectangle, circle/oval, D-shape,
   trapezoid, with a Filled/outline toggle. Buttons renamed "Plastic housing" / "Metal shell".
+- "Empty" renamed "Eraser (empty)" (works with freehand and shapes); freehand brush size
+  selector (1/2/3/5/8); fast drags no longer leave gaps.
 
 ## Git notes
 
@@ -80,7 +82,6 @@ closest matches from a database of known connectors, with a similarity score.
 
 ## Next step
 
-Max pulls the latest code (`git pull`), refreshes the page, tries the shape stamps and reports
-what feels wrong or missing (e.g. D-shape orientation, extra shapes). Then:
-1. Pin-pattern stamps (row of N, grid, ring of N) - if Max wants them.
-2. Details form (pin count, plug/socket) beside the grid.
+Max pulls the latest code, tries the brush/eraser. Then build pin-pattern stamps (row of N,
+grid of N x M, ring of N) - Max to decide spacing/behaviour (see chat). After that: details form
+(pin count, plug/socket).
