@@ -77,6 +77,9 @@ closest matches from a database of known connectors, with a similarity score.
 - Pin-pattern stamps (drag a box, set "Pins" number): Row, Grid (extra "Rows" box), Ring,
   Staggered rows (D-sub style, top row gets the extra pin). Uses the selected element, so it
   works for Socket too. Warns if the box is too small for the pin count.
+- Details form (all optional): pin count, plug/socket, industry. Collapsible "What the app will
+  store" panel shows the data as JSON + 32 text rows (. H S P O K). Industry is collected now but
+  not used by search until Milestone 2.
 
 ## Git notes
 
@@ -85,5 +88,5 @@ closest matches from a database of known connectors, with a similarity score.
 
 ## Next step
 
-Max pulls the latest code, tries the pin patterns, reports feedback. Then: details form
-(pin count, plug/socket) beside the grid.
+Max pulls the latest code and tries the form. Then: the database - SQLite table for connectors,
+save/load functions, and an "Add to database" button (name + current drawing + details).

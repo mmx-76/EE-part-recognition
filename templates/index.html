@@ -20,6 +20,11 @@
     #patternOptions { display: none; margin-left: 10px; font-size: 14px; }
     #patternOptions input { width: 55px; }
     #hint { min-height: 20px; margin-bottom: 8px; font-size: 13px; color: #b00020; }
+    #details { margin: 16px 0; border: 1px solid #aaa; border-radius: 6px; display: grid; gap: 10px; }
+    #details label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+    #details input, #details select { font-size: 14px; padding: 4px; }
+    #stored { margin-bottom: 30px; font-size: 14px; }
+    #storedText { font-size: 9px; line-height: 9px; background: #f4f4f4; padding: 8px; overflow-x: auto; }
     #brush { margin-bottom: 12px; font-size: 14px; }
     #counts { margin: 10px 0; font-size: 14px; color: #333; }
     button.action { padding: 8px 14px; font-size: 14px; cursor: pointer; }
@@ -56,6 +61,42 @@
   <div id="counts"></div>
   <button class="action" id="clear">Clear grid</button>
 
+  <fieldset id="details">
+    <legend>Connector details (all optional)</legend>
+    <label>Number of pins/sockets
+      <input type="number" id="detailPins" min="1" max="500" placeholder="unknown">
+    </label>
+    <label>Plug or socket
+      <select id="detailGender">
+        <option value="unknown">Not sure</option>
+        <option value="plug">Plug (male: pins stick out)</option>
+        <option value="socket">Socket (female: holes for pins)</option>
+      </select>
+    </label>
+    <label>Industry / area
+      <select id="detailIndustry">
+        <option value="unknown">Not specified</option>
+        <option value="automotive">Automotive</option>
+        <option value="audio_video">Audio / video</option>
+        <option value="computing">Computing / IT</option>
+        <option value="networking">Networking / telecom</option>
+        <option value="industrial">Industrial</option>
+        <option value="aerospace">Aerospace / military</option>
+        <option value="mains_power">Mains / power</option>
+        <option value="medical">Medical</option>
+        <option value="other">Other</option>
+      </select>
+    </label>
+  </fieldset>
+
+  <details id="stored">
+    <summary>What the app will store (for the curious)</summary>
+    <p>Each row is one row of the grid. One letter per cell:
+       <code>.</code> empty, <code>H</code> housing, <code>S</code> shell,
+       <code>P</code> pin, <code>O</code> socket, <code>K</code> key.</p>
+    <pre id="storedText"></pre>
+  </details>
+
   <script>
     // The drawing is a 32 x 32 grid. Each cell holds one number saying what is in it.
     const GRID_SIZE = 32;
@@ -63,12 +104,12 @@
 
     // Each element type has a number (stored in the grid), a name and a colour.
     const ELEMENTS = [
-      { id: 0, name: "Eraser (empty)",   colour: "#ffffff", text: "#000", eraser: true },
-      { id: 1, name: "Plastic housing", colour: "#4a4a4a", text: "#fff" },
-      { id: 2, name: "Metal shell",   colour: "#b8c0c8", text: "#000" },
-      { id: 3, name: "Pin",     colour: "#e0a800", text: "#000" },
-      { id: 4, name: "Socket",  colour: "#1f6feb", text: "#fff" },
-      { id: 5, name: "Key",     colour: "#d93025", text: "#fff" },
+      { id: 0, name: "Eraser (empty)", code: ".",   colour: "#ffffff", text: "#000", eraser: true },
+      { id: 1, name: "Plastic housing", code: "H", colour: "#4a4a4a", text: "#fff" },
+      { id: 2, name: "Metal shell", code: "S",   colour: "#b8c0c8", text: "#000" },
+      { id: 3, name: "Pin", code: "P",     colour: "#e0a800", text: "#000" },
+      { id: 4, name: "Socket", code: "O",  colour: "#1f6feb", text: "#fff" },
+      { id: 5, name: "Key", code: "K",     colour: "#d93025", text: "#fff" },
     ];
 
     // grid[row][column] -> element id. Starts all Empty (0).
@@ -96,6 +137,26 @@
         }
       }
       showCounts();
+      showStoredData();
+    }
+
+    // The drawing plus the details form, in the shape we will later save and search.
+    function currentDrawing() {
+      const pinText = document.getElementById("detailPins").value;
+      return {
+        details: {
+          pins: pinText === "" ? null : Number(pinText),
+          gender: document.getElementById("detailGender").value,
+          industry: document.getElementById("detailIndustry").value,
+        },
+        rows: grid.map(row => row.map(cell => ELEMENTS[cell].code).join("")),
+      };
+    }
+
+    function showStoredData() {
+      const drawing = currentDrawing();
+      document.getElementById("storedText").textContent =
+        JSON.stringify(drawing.details) + "\n\n" + drawing.rows.join("\n");
     }
 
     function showCounts() {
@@ -345,6 +406,10 @@
     }
     addToolButtons(SHAPES, shapesDiv, filledLabel);
     addToolButtons(PATTERNS, patternsDiv, patternOptions);
+
+    for (const id of ["detailPins", "detailGender", "detailIndustry"]) {
+      document.getElementById(id).addEventListener("input", showStoredData);
+    }
 
     document.getElementById("clear").addEventListener("click", () => {
       makeEmptyGrid();
