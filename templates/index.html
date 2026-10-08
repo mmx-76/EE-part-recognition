@@ -38,6 +38,16 @@
     .optionGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin-bottom: 8px; }
     .optionGrid label, .checkLine { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
     .checkLine { flex-direction: row; gap: 6px; align-items: center; }
+    #resultActions { margin: 4px 0 18px; font-size: 14px; }
+    #resultActions .notFoundBox { background: #fff3cd; border-radius: 6px; padding: 10px; margin-top: 8px; }
+    .verdict { margin-top: 6px; padding: 4px 10px; font-size: 13px; cursor: pointer; }
+    .verdictDone { color: #1a7f37; font-size: 13px; margin-top: 6px; }
+    .downloadLink { display: inline-block; text-decoration: none; color: #000; background: #efefef;
+                    border: 1px solid #767676; border-radius: 3px; padding: 8px 14px; }
+    #health, #backup { margin-bottom: 14px; font-size: 14px; }
+    #health summary, #backup summary { cursor: pointer; font-weight: bold; }
+    #restoreMessage.error { color: #b00020; }
+    #restoreMessage.ok { color: #1a7f37; }
     #hint { min-height: 20px; margin-bottom: 8px; font-size: 13px; color: #b00020; }
     #details { margin: 16px 0; border: 1px solid #aaa; border-radius: 6px; display: grid; gap: 10px; }
     #details label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
@@ -192,6 +202,7 @@
   
 
       <ol id="results"></ol>
+      <div id="resultActions"></div>
       <p id="resultsHelp" class="help">Matches appear here after you press the button. The percentage is how
         closely each saved connector matches your drawing and details.</p>
     </section>
@@ -201,6 +212,30 @@
   <div id="reviewSummary"></div>
   <label id="onlyUncheckedLabel"><input type="checkbox" id="onlyUnchecked"> Show only drawings I haven't checked yet</label>
   <ul id="savedList"></ul>
+
+  <details id="health">
+    <summary>How well is search working?</summary>
+    <p class="help">Each time you press <strong>This is the one</strong> on a result, or
+      <strong>None of these</strong>, the app remembers it. These numbers show how often the right
+      connector came first, so we can tune the search using your real connectors.</p>
+    <p id="healthText">No verdicts recorded yet.</p>
+  </details>
+
+  <details id="backup">
+    <summary>Backup and restore</summary>
+    <p class="help">Your connectors live in a file on this computer (<code>connectors.db</code>), which is
+      <strong>not</strong> stored on GitHub. The app also makes a dated copy in the
+      <code>backups</code> folder once a day (the last 14 are kept). For an extra copy you can keep
+      somewhere safe, download a backup file:</p>
+    <p><a class="action downloadLink" id="downloadBackup" href="/api/export" download>Download a backup file</a></p>
+    <p class="help">To restore, or to copy your connectors to another computer, choose a backup file here.
+      Connectors that aren't in the database yet are added. Ones with the same name are left alone, unless you
+      tick the box.</p>
+    <p><input type="file" id="restoreFile" accept=".json,application/json">
+       <label><input type="checkbox" id="restoreReplace"> Replace connectors that have the same name</label></p>
+    <p><button class="action" id="restoreButton">Restore from this file</button>
+       <span id="restoreMessage"></span></p>
+  </details>
 
   <details id="stored">
     <summary>What the app will store (for the curious)</summary>
@@ -751,7 +786,8 @@
         message.textContent = "Nothing matched. The database may be empty, or your 'Require' options may be too strict.";
         return;
       }
-      for (const match of matches) {
+      lastSearch = { rows: drawing.rows, details: drawing.details };
+      for (const [index, match] of matches.entries()) {
         const item = document.createElement("li");
         const picture = document.createElement("canvas");
         drawThumbnail(picture, match.rows);
@@ -767,10 +803,98 @@
         const wrapper = document.createElement("div");
         wrapper.className = "match";
         wrapper.append(picture, text);
+        const verdictButton = document.createElement("button");
+        verdictButton.className = "verdict";
+        verdictButton.textContent = "This is the one";
+        verdictButton.addEventListener("click", () => recordRight(match, index + 1, verdictButton));
+        text.appendChild(verdictButton);
         item.appendChild(wrapper);
         resultsList.appendChild(item);
       }
+      showResultActions(matches);
     }
+
+    // ---- Telling the app whether the search found the right connector ---------
+    let lastSearch = null;   // the drawing and details behind the results on screen
+
+    async function sendFeedback(body) {
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.assign({ rows: lastSearch.rows, details: lastSearch.details }, body)),
+      });
+      refreshHealth();
+      return response.ok;
+    }
+
+    async function recordRight(match, rank, button) {
+      if (!await sendFeedback({ outcome: "right", connector_id: match.id, rank: rank, score: match.score })) return;
+      const holder = button.parentNode;   // take this before the buttons are removed
+      for (const other of document.querySelectorAll("#results .verdict")) other.remove();
+      const done = document.createElement("div");
+      done.className = "verdictDone";
+      done.textContent = "Recorded: " + match.name + " was result number " + rank + ". Thank you.";
+      holder.appendChild(done);
+    }
+
+    function showResultActions(matches) {
+      const box = document.getElementById("resultActions");
+      box.innerHTML = "";
+      const none = document.createElement("button");
+      none.className = "verdict";
+      none.textContent = "None of these";
+      none.addEventListener("click", async () => {
+        await sendFeedback({ outcome: "not_found" });
+        box.innerHTML = "";
+        const help = document.createElement("div");
+        help.className = "notFoundBox";
+        help.textContent = "Recorded. If this connector isn't in the database yet, give it a name in the box " +
+          "under the grid and press \u201cSave as new connector\u201d, so the next search can find it.";
+        box.appendChild(help);
+        document.getElementById("connectorName").focus();
+      });
+      box.appendChild(none);
+      if (matches.length > 0 && matches[0].score < 50) {
+        const weak = document.createElement("div");
+        weak.className = "notFoundBox";
+        weak.textContent = "No strong match. This connector may not be in the database yet.";
+        box.appendChild(weak);
+      }
+    }
+
+    async function refreshHealth() {
+      const summary = await (await fetch("/api/feedback/summary")).json();
+      document.getElementById("healthText").textContent = summary.judged === 0
+        ? "No verdicts recorded yet."
+        : summary.judged + " searches judged. Right answer first: " + summary.first + ", in the top 3: " +
+          summary.top3 + ", further down: " + summary.later + ", not in the list at all: " + summary.not_found + ".";
+    }
+
+    // ---- Backup and restore -----------------------------------------------------
+    async function restoreBackup() {
+      const message = document.getElementById("restoreMessage");
+      const file = document.getElementById("restoreFile").files[0];
+      if (!file) { message.textContent = "Choose a backup file first."; message.className = "error"; return; }
+      let data;
+      try { data = JSON.parse(await file.text()); }
+      catch (problem) { message.textContent = "That file isn't a valid backup."; message.className = "error"; return; }
+      const response = await fetch("/api/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: data, replace: document.getElementById("restoreReplace").checked }),
+      });
+      const result = await response.json();
+      if (!response.ok) { message.textContent = result.error; message.className = "error"; return; }
+      message.textContent = "Added " + result.added + ", replaced " + result.replaced + ", left alone " +
+        result.skipped + ", rejected " + result.rejected_count + ". Verdicts added: " + result.feedback_added + "." +
+        (result.rejected_count ? " First problem: " + result.rejected[0].name + " - " + result.rejected[0].reason : "");
+      message.className = result.rejected_count ? "error" : "ok";
+      refreshSavedList();
+      refreshHealth();
+    }
+
+    document.getElementById("restoreButton").addEventListener("click", restoreBackup);
+    refreshHealth();
 
     document.getElementById("searchButton").addEventListener("click", searchDatabase);
 

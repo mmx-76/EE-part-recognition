@@ -1,12 +1,15 @@
 import os
 
-from flask import Flask, jsonify, render_template, request
+import datetime
+
+from flask import Flask, Response, jsonify, render_template, request
 
 import db
 import matching
 
 app = Flask(__name__)
 app.config["DATABASE"] = os.path.join(app.root_path, "connectors.db")
+app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # refuse uploads over 20 MB
 
 
 @app.route("/")
@@ -108,6 +111,42 @@ def api_search():
     return jsonify(matches)
 
 
+@app.get("/api/export")
+def api_export():
+    import json
+    body = json.dumps(db.export_all(app.config["DATABASE"]), indent=1)
+    filename = "connector-database-%s.json" % datetime.date.today().isoformat()
+    return Response(body, mimetype="application/json",
+                    headers={"Content-Disposition": "attachment; filename=" + filename})
+
+
+@app.post("/api/import")
+def api_import():
+    data = request.get_json(silent=True) or {}
+    try:
+        report = db.import_data(app.config["DATABASE"], data.get("data"),
+                                replace_same_name=bool(data.get("replace")))
+    except db.InvalidConnector as problem:
+        return jsonify(error=str(problem)), 400
+    return jsonify(report)
+
+
+@app.post("/api/feedback")
+def api_feedback():
+    data = request.get_json(silent=True) or {}
+    try:
+        db.add_feedback(app.config["DATABASE"], data.get("outcome"), data.get("connector_id"),
+                        data.get("rank"), data.get("score"), data.get("rows"), data.get("details") or {})
+    except db.InvalidConnector as problem:
+        return jsonify(error=str(problem)), 400
+    return jsonify(ok=True), 201
+
+
+@app.get("/api/feedback/summary")
+def api_feedback_summary():
+    return jsonify(db.feedback_summary(app.config["DATABASE"]))
+
+
 @app.delete("/api/connectors/<int:connector_id>")
 def api_delete(connector_id):
     if not db.delete_connector(app.config["DATABASE"], connector_id):
@@ -118,4 +157,5 @@ def api_delete(connector_id):
 db.init_db(app.config["DATABASE"])
 
 if __name__ == "__main__":
+    db.auto_backup(app.config["DATABASE"])   # a dated copy in the backups folder, once a day
     app.run(debug=True)

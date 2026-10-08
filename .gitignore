@@ -5,3 +5,6 @@ __pycache__/
 
 # Local database file (we will decide later whether to commit it)
 *.db
+
+# Automatic daily database backups
+backups/

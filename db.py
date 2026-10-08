@@ -1,4 +1,8 @@
 """All reading and writing of the connector database (a single SQLite file)."""
+import datetime
+import json
+import os
+import shutil
 import sqlite3
 
 GRID_SIZE = 32
@@ -18,6 +22,17 @@ CREATE TABLE IF NOT EXISTS connectors (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     reviewed   INTEGER NOT NULL DEFAULT 1, -- 0 = starter draft nobody has checked yet
     size_mm    REAL                        -- longest side of the mating face; NULL means unknown
+);
+
+CREATE TABLE IF NOT EXISTS feedback (      -- Max's verdicts on search results, for tuning later
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    outcome      TEXT NOT NULL,            -- 'right' (this result was the one) or 'not_found'
+    connector_id INTEGER,                  -- the result that was right (outcome 'right')
+    rank         INTEGER,                  -- where that result appeared in the list (1 = top)
+    score        INTEGER,                  -- the percentage it was shown with
+    grid         TEXT NOT NULL,            -- what was drawn
+    details      TEXT NOT NULL             -- what was filled in, as JSON
 );
 """
 
@@ -220,3 +235,167 @@ def delete_connector(path, connector_id):
     with connect(path) as connection:
         cursor = connection.execute("DELETE FROM connectors WHERE id = ?", (connector_id,))
         return cursor.rowcount > 0
+
+
+# ------------------------------------------------------------------ backups
+
+def auto_backup(path, keep=14):
+    """Copy the database into a `backups` folder next to it, at most once a day, keeping the
+    newest `keep` copies. Returns the new backup's path, or None if nothing was done."""
+    if not os.path.exists(path):
+        return None
+    folder = os.path.join(os.path.dirname(os.path.abspath(path)), "backups")
+    os.makedirs(folder, exist_ok=True)
+    target = os.path.join(folder, "connectors-%s.db" % datetime.date.today().isoformat())
+    if os.path.exists(target):
+        return None
+    source = sqlite3.connect(path)
+    destination = sqlite3.connect(target)
+    with destination:
+        source.backup(destination)   # SQLite's own safe copy, fine even while the app is running
+    source.close()
+    destination.close()
+    for old in sorted(f for f in os.listdir(folder) if f.startswith("connectors-") and f.endswith(".db"))[:-keep]:
+        os.remove(os.path.join(folder, old))
+    return target
+
+
+EXPORT_FORMAT = "connector-finder-export"
+MAX_IMPORT_ITEMS = 5000
+
+
+def export_all(path):
+    """Everything worth keeping, as plain data that can be saved as a .json file."""
+    connectors = []
+    for item in list_connectors(path, include_rows=True):
+        connectors.append({key: item[key] for key in
+                           ("name", "pins", "gender", "industry", "size_mm", "reviewed", "rows")})
+    names = {c["id"]: c["name"] for c in list_connectors(path)}
+    feedback = []
+    for entry in list_feedback(path):
+        entry = dict(entry)
+        entry["connector_name"] = names.get(entry.pop("connector_id"))
+        feedback.append(entry)
+    return {"format": EXPORT_FORMAT, "version": 1,
+            "exported": datetime.datetime.now().isoformat(timespec="seconds"),
+            "connectors": connectors, "feedback": feedback}
+
+
+def import_data(path, data, replace_same_name=False):
+    """Merge an export into the database. Existing connectors with the same name are kept
+    unless replace_same_name is True. Returns a report of what happened."""
+    if not isinstance(data, dict) or data.get("format") != EXPORT_FORMAT:
+        raise InvalidConnector("That doesn't look like a Connector Finder backup file.")
+    if data.get("version") != 1:
+        raise InvalidConnector("This backup is from a newer version of the app (version %s)." % data.get("version"))
+    connectors = data.get("connectors")
+    feedback = data.get("feedback", [])
+    if not isinstance(connectors, list) or not isinstance(feedback, list):
+        raise InvalidConnector("The backup file is damaged.")
+    if len(connectors) + len(feedback) > MAX_IMPORT_ITEMS:
+        raise InvalidConnector("The backup is too big (more than %d items)." % MAX_IMPORT_ITEMS)
+    report = {"added": 0, "replaced": 0, "skipped": 0, "rejected": [], "feedback_added": 0}
+    existing = {c["name"].lower(): c["id"] for c in list_connectors(path)}
+    for item in connectors:
+        try:
+            if not isinstance(item, dict):
+                raise InvalidConnector("Not a connector.")
+            args = dict(name=item.get("name"), pins=item.get("pins"), gender=item.get("gender", "unknown"),
+                        industry=item.get("industry", "unknown"), rows=item.get("rows"))
+            size = item.get("size_mm")
+            reviewed = bool(item.get("reviewed", True))
+            key = (item.get("name") or "").strip().lower()
+            if key in existing:
+                if not replace_same_name:
+                    report["skipped"] += 1
+                    continue
+                update_connector(path, existing[key], args["name"], args["pins"], args["gender"],
+                                 args["industry"], args["rows"], size_mm=size)
+                set_reviewed(path, existing[key], reviewed)
+                report["replaced"] += 1
+            else:
+                new_id = add_connector(path, args["name"], args["pins"], args["gender"], args["industry"],
+                                       args["rows"], reviewed=reviewed, size_mm=size)
+                existing[key] = new_id
+                report["added"] += 1
+        except InvalidConnector as problem:
+            report["rejected"].append({"name": str(item.get("name") if isinstance(item, dict) else item)[:60],
+                                       "reason": str(problem)})
+    names = {c["name"].lower(): c["id"] for c in list_connectors(path)}
+    known = {(f["created_at"], "\n".join(f["rows"])) for f in list_feedback(path)}
+    for entry in feedback:
+        try:
+            if not isinstance(entry, dict):
+                continue
+            validate_rows(entry.get("rows"))
+            marker = (str(entry.get("created_at")), "\n".join(entry["rows"]))
+            if marker in known:
+                continue
+            connector_id = None
+            if entry.get("outcome") == "right":
+                connector_id = names.get((entry.get("connector_name") or "").lower())
+                if connector_id is None:
+                    continue
+            add_feedback(path, entry.get("outcome"), connector_id, entry.get("rank"), entry.get("score"),
+                         entry["rows"], entry.get("details") or {}, created_at=entry.get("created_at"))
+            known.add(marker)
+            report["feedback_added"] += 1
+        except InvalidConnector:
+            continue
+    report["rejected_count"] = len(report["rejected"])
+    report["rejected"] = report["rejected"][:10]
+    return report
+
+
+# ------------------------------------------------------------------ feedback
+
+def add_feedback(path, outcome, connector_id, rank, score, rows, details, created_at=None):
+    """Record whether a search found what Max was looking for."""
+    if outcome not in ("right", "not_found"):
+        raise InvalidConnector("Unknown feedback type.")
+    validate_rows(rows)
+    if outcome == "right":
+        if not isinstance(connector_id, int) or isinstance(connector_id, bool):
+            raise InvalidConnector("Which connector was the right one?")
+        if not isinstance(rank, int) or isinstance(rank, bool) or not 1 <= rank <= 100:
+            raise InvalidConnector("Rank must be a whole number from 1 to 100.")
+        if not isinstance(score, int) or isinstance(score, bool) or not 0 <= score <= 100:
+            raise InvalidConnector("Score must be a whole number from 0 to 100.")
+        with connect(path) as connection:
+            if not connection.execute("SELECT 1 FROM connectors WHERE id = ?", (connector_id,)).fetchone():
+                raise InvalidConnector("No such connector.")
+    else:
+        connector_id = rank = score = None
+    if not isinstance(details, dict):
+        raise InvalidConnector("Details must be an object.")
+    details_text = json.dumps({key: details.get(key) for key in ("pins", "gender", "size_mm", "industry")})
+    with connect(path) as connection:
+        if created_at:
+            connection.execute(
+                "INSERT INTO feedback (created_at, outcome, connector_id, rank, score, grid, details)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (str(created_at), outcome, connector_id, rank, score, "\n".join(rows), details_text))
+        else:
+            connection.execute(
+                "INSERT INTO feedback (outcome, connector_id, rank, score, grid, details)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (outcome, connector_id, rank, score, "\n".join(rows), details_text))
+
+
+def list_feedback(path):
+    with connect(path) as connection:
+        rows = connection.execute("SELECT * FROM feedback ORDER BY id").fetchall()
+    return [{"created_at": r["created_at"], "outcome": r["outcome"], "connector_id": r["connector_id"],
+             "rank": r["rank"], "score": r["score"], "rows": r["grid"].split("\n"),
+             "details": json.loads(r["details"])} for r in rows]
+
+
+def feedback_summary(path):
+    """How well has search been working, according to Max's verdicts?"""
+    entries = list_feedback(path)
+    right = [e for e in entries if e["outcome"] == "right"]
+    return {"judged": len(entries),
+            "first": sum(e["rank"] == 1 for e in right),
+            "top3": sum(e["rank"] <= 3 for e in right),
+            "later": sum(e["rank"] > 3 for e in right),
+            "not_found": sum(e["outcome"] == "not_found" for e in entries)}
