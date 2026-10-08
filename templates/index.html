@@ -46,6 +46,13 @@
     #savedList { padding-left: 0; list-style: none; font-size: 14px; }
     #savedList li { padding: 6px 0; border-bottom: 1px solid #ddd; display: flex; gap: 8px;
                     align-items: center; flex-wrap: wrap; }
+    #editingBanner { flex-basis: 100%; font-size: 14px; font-weight: bold; color: #1f6feb; }
+    #reviewSummary { font-size: 14px; margin-bottom: 6px; }
+    #onlyUncheckedLabel { font-size: 14px; display: block; margin-bottom: 8px; }
+    .badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+    .badge.draft { background: #fff3cd; color: #7a5a00; }
+    .badge.checked { background: #d9f2e0; color: #1a7f37; }
+    #savedList canvas { border: 1px solid #aaa; flex: none; cursor: default; }
     #savedList .info { flex: 1; min-width: 180px; }
     #savedList button { padding: 4px 10px; cursor: pointer; }
     #brush { margin-bottom: 12px; font-size: 14px; }
@@ -119,14 +126,19 @@
   <ol id="results"></ol>
 
   <div id="save">
+    <div id="editingBanner"></div>
     <label>Name
       <input type="text" id="connectorName" maxlength="100" placeholder="e.g. DE-9 male">
     </label>
-    <button class="action" id="saveButton">Add to database</button>
+    <button class="action" id="saveButton">Save as new connector</button>
+    <button class="action" id="updateButton" hidden>Save changes</button>
+    <button class="action" id="stopEditingButton" hidden>Stop editing</button>
     <span id="saveMessage"></span>
   </div>
 
   <h2>Saved connectors</h2>
+  <div id="reviewSummary"></div>
+  <label id="onlyUncheckedLabel"><input type="checkbox" id="onlyUnchecked"> Show only drawings I haven't checked yet</label>
   <ul id="savedList"></ul>
 
   <details id="stored">
@@ -460,57 +472,119 @@
     const LETTER_TO_ID = {};
     for (const element of ELEMENTS) LETTER_TO_ID[element.code] = element.id;
 
+    let editingId = null;   // id of the saved connector being edited, or null for a new drawing
+    let savedConnectors = [];
+
     function showSaveMessage(text, kind) {
       const message = document.getElementById("saveMessage");
       message.textContent = text;
       message.className = kind;
     }
 
+    function showEditingState(name) {
+      const editing = editingId !== null;
+      document.getElementById("editingBanner").textContent = editing ? "Editing: " + name : "";
+      document.getElementById("updateButton").hidden = !editing;
+      document.getElementById("stopEditingButton").hidden = !editing;
+      document.getElementById("saveButton").textContent =
+        editing ? "Save as a new copy" : "Save as new connector";
+    }
+
     async function refreshSavedList() {
-      const response = await fetch("/api/connectors");
-      const connectors = await response.json();
+      const response = await fetch("/api/connectors?rows=1");
+      savedConnectors = await response.json();
+      renderSavedList();
+    }
+
+    function renderSavedList() {
       const list = document.getElementById("savedList");
       list.innerHTML = "";
-      if (connectors.length === 0) {
-        list.innerHTML = "<li>Nothing saved yet.</li>";
+      const unchecked = savedConnectors.filter(c => !c.reviewed).length;
+      document.getElementById("reviewSummary").textContent = savedConnectors.length === 0 ? "" :
+        unchecked === 0 ? "All " + savedConnectors.length + " drawings are checked."
+          : unchecked + " of " + savedConnectors.length + " drawings still need checking (starter drafts).";
+      const onlyUnchecked = document.getElementById("onlyUnchecked").checked;
+      const shown = savedConnectors.filter(c => !onlyUnchecked || !c.reviewed);
+      if (shown.length === 0) {
+        list.innerHTML = "<li>" + (savedConnectors.length === 0 ? "Nothing saved yet." : "Nothing to show.") + "</li>";
         return;
       }
-      for (const connector of connectors) {
+      for (const connector of shown) {
         const item = document.createElement("li");
+        const picture = document.createElement("canvas");
+        drawThumbnail(picture, connector.rows);
         const info = document.createElement("span");
         info.className = "info";
         info.textContent = connector.name + " \u2014 " +
           (connector.pins === null ? "? pins" : connector.pins + " pins") + ", " +
-          connector.gender + ", " + connector.industry;
+          connector.gender + ", " + connector.industry + " ";
+        const badge = document.createElement("span");
+        badge.className = "badge " + (connector.reviewed ? "checked" : "draft");
+        badge.textContent = connector.reviewed ? "checked" : "starter draft";
+        info.appendChild(badge);
+        item.append(picture, info);
         const loadButton = document.createElement("button");
-        loadButton.textContent = "Load";
+        loadButton.textContent = "Load to edit";
         loadButton.addEventListener("click", () => loadConnector(connector.id));
+        item.appendChild(loadButton);
+        if (!connector.reviewed) {
+          const tickButton = document.createElement("button");
+          tickButton.textContent = "Mark as checked";
+          tickButton.addEventListener("click", () => markChecked(connector.id));
+          item.appendChild(tickButton);
+        }
         const deleteButton = document.createElement("button");
         deleteButton.textContent = "Delete";
         deleteButton.addEventListener("click", () => deleteConnector(connector));
-        item.append(info, loadButton, deleteButton);
+        item.appendChild(deleteButton);
         list.appendChild(item);
       }
     }
 
-    async function saveConnector() {
+    function payloadFromPage() {
       const drawing = currentDrawing();
-      const response = await fetch("/api/connectors", {
-        method: "POST",
+      return {
+        name: document.getElementById("connectorName").value,
+        details: drawing.details,
+        rows: drawing.rows,
+      };
+    }
+
+    async function sendConnector(method, url) {
+      const response = await fetch(url, {
+        method: method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: document.getElementById("connectorName").value,
-          details: drawing.details,
-          rows: drawing.rows,
-        }),
+        body: JSON.stringify(payloadFromPage()),
       });
       const result = await response.json();
       if (!response.ok) {
         showSaveMessage(result.error, "error");
-        return;
+        return null;
       }
-      showSaveMessage("Saved!", "ok");
+      return result;
+    }
+
+    async function saveNewConnector() {
+      const result = await sendConnector("POST", "/api/connectors");
+      if (!result) return;
+      editingId = result.id;
+      showEditingState(document.getElementById("connectorName").value.trim());
+      showSaveMessage("Saved as a new connector.", "ok");
       refreshSavedList();
+    }
+
+    async function saveChanges() {
+      const result = await sendConnector("PUT", "/api/connectors/" + editingId);
+      if (!result) return;
+      showEditingState(document.getElementById("connectorName").value.trim());
+      showSaveMessage("Changes saved. This drawing now counts as checked.", "ok");
+      refreshSavedList();
+    }
+
+    function stopEditing() {
+      editingId = null;
+      showEditingState("");
+      showSaveMessage("", "");
     }
 
     async function loadConnector(id) {
@@ -521,17 +595,33 @@
       document.getElementById("detailPins").value = connector.pins === null ? "" : connector.pins;
       document.getElementById("detailGender").value = connector.gender;
       document.getElementById("detailIndustry").value = connector.industry;
-      showSaveMessage("Loaded " + connector.name + ".", "ok");
+      editingId = connector.id;
+      showEditingState(connector.name);
+      showSaveMessage("Loaded " + connector.name + ". Change it, then press Save changes.", "ok");
       draw();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    async function markChecked(id) {
+      await fetch("/api/connectors/" + id + "/reviewed", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviewed: true }),
+      });
+      refreshSavedList();
     }
 
     async function deleteConnector(connector) {
       if (!confirm("Delete " + connector.name + " from the database?")) return;
       await fetch("/api/connectors/" + connector.id, { method: "DELETE" });
+      if (editingId === connector.id) stopEditing();
       refreshSavedList();
     }
 
-    document.getElementById("saveButton").addEventListener("click", saveConnector);
+    document.getElementById("saveButton").addEventListener("click", saveNewConnector);
+    document.getElementById("updateButton").addEventListener("click", saveChanges);
+    document.getElementById("stopEditingButton").addEventListener("click", stopEditing);
+    document.getElementById("onlyUnchecked").addEventListener("change", renderSavedList);
     refreshSavedList();
 
     // ---- Searching ------------------------------------------------------------

@@ -87,6 +87,72 @@ class DatabaseTests(unittest.TestCase):
                 db.add_connector(self.path, *case)
 
 
+class EditingTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.folder.name, "edit.db")
+        db.init_db(self.path)
+
+    def tearDown(self):
+        self.folder.cleanup()
+
+    def test_update_changes_everything_and_marks_checked(self):
+        new_id = db.add_connector(self.path, "Draft", 4, "plug", "other", sample_rows("P"), reviewed=False)
+        self.assertFalse(db.get_connector(self.path, new_id)["reviewed"])
+        self.assertTrue(db.update_connector(self.path, new_id, "Fixed", 9, "socket", "computing", sample_rows("O")))
+        found = db.get_connector(self.path, new_id)
+        self.assertEqual((found["name"], found["pins"], found["gender"], found["industry"]),
+                         ("Fixed", 9, "socket", "computing"))
+        self.assertIn("OOOO", found["rows"][found["rows"].index(next(r for r in found["rows"] if "O" in r))])
+        self.assertTrue(found["reviewed"])
+
+    def test_update_of_missing_connector_returns_false(self):
+        self.assertFalse(db.update_connector(self.path, 999, "X", 1, "plug", "other", sample_rows()))
+
+    def test_names_must_be_unique_ignoring_case(self):
+        first = db.add_connector(self.path, "USB-A", 4, "plug", "computing", sample_rows())
+        with self.assertRaises(db.InvalidConnector):
+            db.add_connector(self.path, "  usb-a ", 4, "plug", "computing", sample_rows())
+        second = db.add_connector(self.path, "USB-B", 4, "plug", "computing", sample_rows())
+        with self.assertRaises(db.InvalidConnector):
+            db.update_connector(self.path, second, "usb-a", 4, "plug", "computing", sample_rows())
+        # keeping your own name when editing is fine
+        self.assertTrue(db.update_connector(self.path, first, "USB-A", 5, "plug", "computing", sample_rows()))
+
+    def test_set_reviewed_toggles_the_flag(self):
+        new_id = db.add_connector(self.path, "Draft", 4, "plug", "other", sample_rows(), reviewed=False)
+        self.assertTrue(db.set_reviewed(self.path, new_id, True))
+        self.assertTrue(db.get_connector(self.path, new_id)["reviewed"])
+        self.assertTrue(db.set_reviewed(self.path, new_id, False))
+        self.assertFalse(db.get_connector(self.path, new_id)["reviewed"])
+        self.assertFalse(db.set_reviewed(self.path, 999, True))
+
+    def test_old_database_without_the_flag_is_upgraded(self):
+        import sqlite3
+        import seed_data
+        old_path = os.path.join(self.folder.name, "old.db")
+        connection = sqlite3.connect(old_path)   # build a database exactly as it was before the flag
+        connection.executescript("""CREATE TABLE connectors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, pins INTEGER,
+            gender TEXT NOT NULL, industry TEXT NOT NULL, grid TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);""")
+        name, pins, gender, industry, rows = next(seed_data.starter_rows())
+        edited = [row for row in rows]
+        edited[0] = "P" + edited[0][1:]
+        for n, r in ((name, rows), ("My own", sample_rows()), ("Edited starter", edited)):
+            connection.execute("INSERT INTO connectors (name,pins,gender,industry,grid) VALUES (?,?,?,?,?)",
+                               (n, 9, "plug", "other", "\n".join(r)))
+        connection.commit(); connection.close()
+        db.init_db(old_path)
+        by_name = {c["name"]: c["reviewed"] for c in db.list_connectors(old_path)}
+        self.assertFalse(by_name[name])          # untouched starter -> unchecked draft
+        self.assertTrue(by_name["My own"])       # Max's own drawing -> counts as checked
+        self.assertTrue(by_name["Edited starter"])  # not an exact starter any more -> left alone
+        db.set_reviewed(old_path, next(c["id"] for c in db.list_connectors(old_path) if c["name"] == name), True)
+        db.init_db(old_path)                     # restarting the app must not undo a tick
+        self.assertTrue({c["name"]: c["reviewed"] for c in db.list_connectors(old_path)}[name])
+
+
 class WebTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()

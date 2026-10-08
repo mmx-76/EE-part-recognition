@@ -21,7 +21,7 @@ def load_starter_connectors(path):
         if name in existing:
             skipped += 1
             continue
-        db.add_connector(path, name, pins, gender, industry, rows)
+        db.add_connector(path, name, pins, gender, industry, rows, reviewed=False)
         added += 1
     return added, skipped
 

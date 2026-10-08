@@ -34,6 +34,12 @@ class SeedDataTests(unittest.TestCase):
 
 
 class LoaderTests(unittest.TestCase):
+    def test_starters_are_loaded_as_unchecked_drafts(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "seed.db")
+            seed_db.load_starter_connectors(path)
+            self.assertFalse(any(c["reviewed"] for c in db.list_connectors(path)))
+
     def test_loading_twice_does_not_duplicate(self):
         with tempfile.TemporaryDirectory() as folder:
             path = os.path.join(folder, "seed.db")

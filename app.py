@@ -16,7 +16,8 @@ def home():
 
 @app.get("/api/connectors")
 def api_list():
-    return jsonify(db.list_connectors(app.config["DATABASE"]))
+    with_drawings = request.args.get("rows") == "1"
+    return jsonify(db.list_connectors(app.config["DATABASE"], include_rows=with_drawings))
 
 
 @app.get("/api/connectors/<int:connector_id>")
@@ -43,6 +44,34 @@ def api_add():
     except db.InvalidConnector as problem:
         return jsonify(error=str(problem)), 400
     return jsonify(id=new_id), 201
+
+
+@app.put("/api/connectors/<int:connector_id>")
+def api_update(connector_id):
+    data = request.get_json(silent=True) or {}
+    details = data.get("details") or {}
+    try:
+        found = db.update_connector(
+            app.config["DATABASE"], connector_id,
+            name=data.get("name"),
+            pins=details.get("pins"),
+            gender=details.get("gender", "unknown"),
+            industry=details.get("industry", "unknown"),
+            rows=data.get("rows"),
+        )
+    except db.InvalidConnector as problem:
+        return jsonify(error=str(problem)), 400
+    if not found:
+        return jsonify(error="No such connector."), 404
+    return jsonify(ok=True)
+
+
+@app.patch("/api/connectors/<int:connector_id>/reviewed")
+def api_reviewed(connector_id):
+    data = request.get_json(silent=True) or {}
+    if not db.set_reviewed(app.config["DATABASE"], connector_id, bool(data.get("reviewed", True))):
+        return jsonify(error="No such connector."), 404
+    return jsonify(ok=True)
 
 
 @app.post("/api/search")

@@ -16,6 +16,43 @@ def rows_with(letter, count):
     return rows
 
 
+class EditRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        path = os.path.join(self.folder.name, "edit.db")
+        app_module.app.config["DATABASE"] = path
+        db.init_db(path)
+        self.client = app_module.app.test_client()
+        self.body = {"name": "Draft", "details": {"pins": 6, "gender": "plug", "industry": "other"},
+                     "rows": rows_with("P", 6)}
+        self.id = self.client.post("/api/connectors", json=self.body).get_json()["id"]
+
+    def tearDown(self):
+        self.folder.cleanup()
+
+    def test_put_updates_and_list_can_include_drawings(self):
+        self.body["name"] = "Renamed"
+        self.assertEqual(self.client.put("/api/connectors/%d" % self.id, json=self.body).status_code, 200)
+        plain = self.client.get("/api/connectors").get_json()
+        self.assertEqual(plain[0]["name"], "Renamed")
+        self.assertNotIn("rows", plain[0])
+        self.assertEqual(len(self.client.get("/api/connectors?rows=1").get_json()[0]["rows"]), 32)
+
+    def test_put_errors(self):
+        self.assertEqual(self.client.put("/api/connectors/999", json=self.body).status_code, 404)
+        self.client.post("/api/connectors", json=dict(self.body, name="Other"))
+        clash = self.client.put("/api/connectors/%d" % self.id, json=dict(self.body, name="other"))
+        self.assertEqual(clash.status_code, 400)
+        self.assertIn("already exists", clash.get_json()["error"])
+        self.assertEqual(self.client.post("/api/connectors", json=self.body).status_code, 400)  # duplicate name
+
+    def test_patch_reviewed(self):
+        self.assertEqual(self.client.patch("/api/connectors/%d/reviewed" % self.id,
+                                           json={"reviewed": False}).status_code, 200)
+        self.assertFalse(self.client.get("/api/connectors").get_json()[0]["reviewed"])
+        self.assertEqual(self.client.patch("/api/connectors/999/reviewed", json={}).status_code, 404)
+
+
 class SearchRouteTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()

@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS connectors (
     gender     TEXT NOT NULL,         -- plug / socket / unknown
     industry   TEXT NOT NULL,
     grid       TEXT NOT NULL,         -- 32 lines of 32 letters, joined with newlines
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reviewed   INTEGER NOT NULL DEFAULT 1  -- 0 = starter draft nobody has checked yet
 );
 """
 
@@ -50,18 +51,37 @@ def centre_rows(rows):
     return ["".join(row) for row in result]
 
 
+def _columns(connection):
+    return {row["name"] for row in connection.execute("PRAGMA table_info(connectors)")}
+
+
 def init_db(path):
-    """Create the table if it doesn't exist yet, and centre any drawing that isn't centred.
+    """Create the table if it doesn't exist yet, and bring an older database up to date.
 
     Safe to call every time the app starts."""
     with connect(path) as connection:
         connection.executescript(SCHEMA)
+        if "reviewed" not in _columns(connection):
+            # Database made before the "checked" flag existed: add it, and mark every
+            # starter connector that nobody has edited as an unchecked draft.
+            connection.execute("ALTER TABLE connectors ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 1")
+            _flag_untouched_starters(connection)
         for row in connection.execute("SELECT id, grid FROM connectors").fetchall():
             current = row["grid"].split("\n")
             centred = centre_rows(current)
             if centred != current:
                 connection.execute("UPDATE connectors SET grid = ? WHERE id = ?",
                                    ("\n".join(centred), row["id"]))
+
+
+def _flag_untouched_starters(connection):
+    import seed_data  # imported here because seed_data is only needed for this one-off step
+    untouched = {name: "\n".join(centre_rows(rows))
+                 for name, _pins, _gender, _industry, rows in seed_data.starter_rows()}
+    for row in connection.execute("SELECT id, name, grid FROM connectors").fetchall():
+        grid = "\n".join(centre_rows(row["grid"].split("\n")))
+        if untouched.get(row["name"]) == grid:
+            connection.execute("UPDATE connectors SET reviewed = 0 WHERE id = ?", (row["id"],))
 
 
 def validate_rows(rows):
@@ -97,20 +117,54 @@ def validate(name, pins, gender, industry, rows):
     return name, pins, gender, industry
 
 
-def add_connector(path, name, pins, gender, industry, rows):
-    """Save a connector and return its new id."""
+def _check_name_is_free(connection, name, ignore_id=None):
+    for row in connection.execute("SELECT id FROM connectors WHERE lower(name) = lower(?)", (name,)):
+        if row["id"] != ignore_id:
+            raise InvalidConnector(
+                "A connector called '%s' already exists. Pick a different name, or load it and "
+                "use 'Save changes'." % name)
+
+
+def add_connector(path, name, pins, gender, industry, rows, reviewed=True):
+    """Save a new connector and return its id. Starter drafts are saved with reviewed=False."""
     name, pins, gender, industry = validate(name, pins, gender, industry, rows)
     with connect(path) as connection:
+        _check_name_is_free(connection, name)
         cursor = connection.execute(
-            "INSERT INTO connectors (name, pins, gender, industry, grid) VALUES (?, ?, ?, ?, ?)",
-            (name, pins, gender, industry, "\n".join(centre_rows(rows))),
+            "INSERT INTO connectors (name, pins, gender, industry, grid, reviewed)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (name, pins, gender, industry, "\n".join(centre_rows(rows)), 1 if reviewed else 0),
         )
         return cursor.lastrowid
 
 
+def update_connector(path, connector_id, name, pins, gender, industry, rows):
+    """Replace a connector's name, details and drawing. Saving your own edit counts as having
+    checked it. Returns False if there is no such connector."""
+    name, pins, gender, industry = validate(name, pins, gender, industry, rows)
+    with connect(path) as connection:
+        if not connection.execute("SELECT 1 FROM connectors WHERE id = ?", (connector_id,)).fetchone():
+            return False
+        _check_name_is_free(connection, name, ignore_id=connector_id)
+        connection.execute(
+            "UPDATE connectors SET name = ?, pins = ?, gender = ?, industry = ?, grid = ?, reviewed = 1"
+            " WHERE id = ?",
+            (name, pins, gender, industry, "\n".join(centre_rows(rows)), connector_id),
+        )
+        return True
+
+
+def set_reviewed(path, connector_id, reviewed):
+    """Tick or untick a connector as checked. Returns False if there is no such connector."""
+    with connect(path) as connection:
+        cursor = connection.execute("UPDATE connectors SET reviewed = ? WHERE id = ?",
+                                    (1 if reviewed else 0, connector_id))
+        return cursor.rowcount > 0
+
+
 def _to_dict(row, include_rows):
     result = {"id": row["id"], "name": row["name"], "pins": row["pins"],
-              "gender": row["gender"], "industry": row["industry"]}
+              "gender": row["gender"], "industry": row["industry"], "reviewed": bool(row["reviewed"])}
     if include_rows:
         result["rows"] = row["grid"].split("\n")
     return result
