@@ -385,7 +385,8 @@ STARTER_CONNECTORS = [
     ("RJ45 (8P8C) jack",                8,  "socket", "networking",  rj45_jack),
     ("DC barrel plug (centre-hole type)", 2, "plug",  "mains_power", _barrel_plug),
     ("DC barrel jack (centre-pin type)",  2, "socket", "mains_power", _barrel_jack),
-    ("3.5 mm / 6.35 mm TRS audio plug", 3,  "plug",   "audio_video", _trs_plug),
+    ("3.5 mm TRS audio plug (mini-jack)", 3, "plug",  "audio_video", _trs_plug),
+    ("6.35 mm (1/4 inch) TRS audio plug", 3, "plug",  "audio_video", _trs_plug),
     ("RCA (phono) plug",                2,  "plug",   "audio_video", _rca_plug),
     ("BNC plug (male)",                 1,  "plug",   "audio_video", bnc_male),
     ("XLR 3-pin, male",                 3,  "plug",   "audio_video", xlr_male),
@@ -402,6 +403,32 @@ STARTER_CONNECTORS = [
     ("IEC C13 outlet (female)",         3,  "socket", "mains_power", lambda: female(iec_c14())),
     ("NEMA 5-15P plug (North American mains)", 3, "plug", "mains_power", nema_5_15p),
 ]
+
+
+# Approximate size of each mating face (longest side, in millimetres), from general knowledge.
+# They are rough: the search treats sizes within about 15% as the same.
+STARTER_SIZES = {
+    "DE-9 (DB-9) serial, male": 17, "DE-9 (DB-9) serial, female": 17,
+    "DB-25 parallel/serial, male": 38, "DB-25 parallel/serial, female": 38,
+    "HD-15 VGA, female (on the PC)": 17, "HD-15 VGA, male (on the cable)": 17,
+    "USB-A plug": 12, "USB-A receptacle (port)": 12, "USB-B plug": 8.5,
+    "USB-C plug": 8.3, "USB-C receptacle (port)": 8.3, "Micro-USB B plug": 6.9,
+    "HDMI Type A plug": 14, "DisplayPort plug": 17,
+    "RJ45 (8P8C) plug": 12, "RJ45 (8P8C) jack": 12,
+    "DC barrel plug (centre-hole type)": 5.5, "DC barrel jack (centre-pin type)": 5.5,
+    "3.5 mm TRS audio plug (mini-jack)": 3.5, "6.35 mm (1/4 inch) TRS audio plug": 6.35,
+    "RCA (phono) plug": 8.5, "BNC plug (male)": 10,
+    "XLR 3-pin, male": 20, "XLR 3-pin, female": 20,
+    "DIN 5-pin 180 degree (MIDI) plug": 13, "Mini-DIN 6-pin (PS/2) plug": 9.5,
+    "M12 4-pin A-coded, male": 15, "M12 4-pin A-coded, female": 15,
+    "2x5 pin header (shrouded, IDC)": 23, "Molex 4-pin peripheral, female": 19,
+    "SATA data plug": 14, "OBD-II (J1962) female socket": 38,
+    "IEC C14 inlet (male)": 28, "IEC C13 outlet (female)": 28,
+    "NEMA 5-15P plug (North American mains)": 40,
+}
+
+# Starter connectors that were renamed in a later version: old name -> new name.
+RENAMED_STARTERS = {"3.5 mm / 6.35 mm TRS audio plug": "3.5 mm TRS audio plug (mini-jack)"}
 
 
 def starter_rows():

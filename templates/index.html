@@ -32,6 +32,12 @@
     #patterns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
     #patternOptions { display: none; margin-left: 10px; font-size: 14px; }
     #patternOptions input { width: 55px; }
+    .hint-text { font-size: 12px; color: #666; }
+    #advanced { margin: 10px 0 18px; font-size: 14px; }
+    #advanced summary { cursor: pointer; font-weight: bold; }
+    .optionGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin-bottom: 8px; }
+    .optionGrid label, .checkLine { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+    .checkLine { flex-direction: row; gap: 6px; align-items: center; }
     #hint { min-height: 20px; margin-bottom: 8px; font-size: 13px; color: #b00020; }
     #details { margin: 16px 0; border: 1px solid #aaa; border-radius: 6px; display: grid; gap: 10px; }
     #details label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
@@ -142,6 +148,10 @@
         <option value="socket">Socket (female: holes for pins)</option>
       </select>
     </label>
+    <label>Approximate size, in mm (longest side of the front face)
+      <input type="number" id="detailSize" min="0.5" max="500" step="0.1" placeholder="unknown">
+      <span class="hint-text">Measure the widest part of the mating face. Within about 15% is fine.</span>
+    </label>
     <label>Industry / area
       <select id="detailIndustry">
         <option value="unknown">Not specified</option>
@@ -158,6 +168,21 @@
     </label>
   </fieldset>
 
+      <details id="advanced">
+        <summary>Advanced search options</summary>
+        <p class="help">For every detail you fill in above, choose how strictly it is used.
+          <strong>Prefer</strong> lowers the score of connectors that disagree (the normal setting),
+          <strong>Require</strong> removes them from the results, <strong>Ignore</strong> doesn't use it.
+          Details you leave blank are never used.</p>
+        <div class="optionGrid">
+          <label>Pin count <select id="optPins"><option value="prefer">Prefer</option><option value="require">Require</option><option value="ignore">Ignore</option></select></label>
+          <label>Plug or socket <select id="optGender"><option value="prefer">Prefer</option><option value="require">Require</option><option value="ignore">Ignore</option></select></label>
+          <label>Size <select id="optSize"><option value="prefer">Prefer</option><option value="require">Require</option><option value="ignore">Ignore</option></select></label>
+          <label>Industry <select id="optIndustry"><option value="prefer">Prefer</option><option value="require">Require</option><option value="ignore">Ignore</option></select></label>
+          <label>Results to show <select id="optLimit"><option value="5">5</option><option value="10">10</option><option value="20">20</option></select></label>
+        </div>
+        <label class="checkLine"><input type="checkbox" id="optChecked"> Only search drawings I've checked (skip unchecked starter drafts)</label>
+      </details>
 
       <h2>3. Results</h2>
   <div id="search">
@@ -235,6 +260,8 @@
         details: {
           pins: pinText === "" ? null : Number(pinText),
           gender: document.getElementById("detailGender").value,
+          size_mm: document.getElementById("detailSize").value === ""
+            ? null : Number(document.getElementById("detailSize").value),
           industry: document.getElementById("detailIndustry").value,
         },
         rows: grid.map(row => row.map(cell => ELEMENTS[cell].code).join("")),
@@ -495,7 +522,7 @@
     addToolButtons(SHAPES, shapesDiv, filledLabel);
     addToolButtons(PATTERNS, patternsDiv, patternOptions);
 
-    for (const id of ["detailPins", "detailGender", "detailIndustry"]) {
+    for (const id of ["detailPins", "detailGender", "detailSize", "detailIndustry"]) {
       document.getElementById(id).addEventListener("input", showStoredData);
     }
 
@@ -553,7 +580,8 @@
         info.className = "info";
         info.textContent = connector.name + " \u2014 " +
           (connector.pins === null ? "? pins" : connector.pins + " pins") + ", " +
-          connector.gender + ", " + connector.industry + " ";
+          connector.gender + ", " + (connector.size_mm === null ? "size ?" : connector.size_mm + " mm") +
+          ", " + connector.industry + " ";
         const badge = document.createElement("span");
         badge.className = "badge " + (connector.reviewed ? "checked" : "draft");
         badge.textContent = connector.reviewed ? "checked" : "starter draft";
@@ -630,6 +658,7 @@
       document.getElementById("connectorName").value = connector.name;
       document.getElementById("detailPins").value = connector.pins === null ? "" : connector.pins;
       document.getElementById("detailGender").value = connector.gender;
+      document.getElementById("detailSize").value = connector.size_mm === null ? "" : connector.size_mm;
       document.getElementById("detailIndustry").value = connector.industry;
       editingId = connector.id;
       showEditingState(connector.name);
@@ -681,7 +710,24 @@
       if (match.gender_score !== null) {
         parts.push(match.gender_score === 100 ? "plug/socket agrees" : "plug/socket differs");
       }
+      if (match.size_score !== null) {
+        parts.push(match.size_score === 100 ? "size agrees" : "size " + match.size_score + "%");
+      }
+      if (match.industry_score !== null) {
+        parts.push(match.industry_score === 100 ? "industry agrees" : "industry differs");
+      }
       return parts.join(" \u00b7 ");
+    }
+
+    function searchOptions() {
+      return {
+        pins: document.getElementById("optPins").value,
+        gender: document.getElementById("optGender").value,
+        size: document.getElementById("optSize").value,
+        industry: document.getElementById("optIndustry").value,
+        limit: Number(document.getElementById("optLimit").value),
+        only_checked: document.getElementById("optChecked").checked,
+      };
     }
 
     async function searchDatabase() {
@@ -692,7 +738,7 @@
       const response = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ details: drawing.details, rows: drawing.rows }),
+        body: JSON.stringify({ details: drawing.details, rows: drawing.rows, options: searchOptions() }),
       });
       const matches = await response.json();
       resultsList.innerHTML = "";
@@ -702,7 +748,7 @@
       }
       document.getElementById("resultsHelp").classList.add("hidden");
       if (matches.length === 0) {
-        message.textContent = "The database is empty, so there is nothing to match against yet.";
+        message.textContent = "Nothing matched. The database may be empty, or your 'Require' options may be too strict.";
         return;
       }
       for (const match of matches) {
@@ -716,8 +762,8 @@
         text.querySelector(".bar div").style.width = match.score + "%";
         text.querySelector(".why").textContent = describeMatch(match);
         text.querySelector(".details").textContent =
-          (match.pins === null ? "? pins" : match.pins + " pins") + ", " +
-          match.gender + ", " + match.industry;
+          (match.pins === null ? "? pins" : match.pins + " pins") + ", " + match.gender + ", " +
+          (match.size_mm === null ? "size ?" : match.size_mm + " mm") + ", " + match.industry;
         const wrapper = document.createElement("div");
         wrapper.className = "match";
         wrapper.append(picture, text);

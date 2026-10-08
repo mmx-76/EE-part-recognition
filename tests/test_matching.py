@@ -77,36 +77,74 @@ class DrawingScoreTests(unittest.TestCase):
         self.assertGreater(prepared_score(d_sub_like(), to_rows(wobbled)), 0.85)
 
 
+def info(pins=None, gender="unknown", size=None, industry="unknown"):
+    return {"pins": pins, "gender": gender, "size_mm": size, "industry": industry}
+
+
+NOTHING = info()
+
+
 class CombineTests(unittest.TestCase):
     def test_unrelated_drawings_score_near_zero(self):
-        self.assertEqual(matching.combine(0.25, None, "unknown", None, "unknown")["score"], 0.0)
-        self.assertLess(matching.combine(0.40, None, "unknown", None, "unknown")["score"], 0.25)
+        self.assertEqual(matching.combine(0.25, NOTHING, NOTHING)["score"], 0.0)
+        self.assertLess(matching.combine(0.40, NOTHING, NOTHING)["score"], 0.25)
 
     def test_identical_drawings_score_one(self):
-        self.assertAlmostEqual(matching.combine(1.0, None, "unknown", None, "unknown")["score"], 1.0)
+        self.assertAlmostEqual(matching.combine(1.0, NOTHING, NOTHING)["score"], 1.0)
 
     def test_unknown_details_change_nothing(self):
-        plain = matching.combine(0.8, None, "unknown", 9, "plug")
+        plain = matching.combine(0.8, NOTHING, info(9, "plug", 12, "computing"))
         self.assertAlmostEqual(plain["score"], matching.calibrate(0.8))
         self.assertIsNone(plain["pin_score"])
 
     def test_agreeing_details_do_not_inflate_a_poor_shape(self):
-        shape_only = matching.combine(0.4, None, "unknown", 9, "plug")["score"]
-        with_details = matching.combine(0.4, 9, "plug", 9, "plug")["score"]
+        shape_only = matching.combine(0.4, NOTHING, info(9, "plug", 12, "computing"))["score"]
+        with_details = matching.combine(0.4, info(9, "plug", 12, "computing"),
+                                        info(9, "plug", 12, "computing"))["score"]
         self.assertAlmostEqual(with_details, shape_only)
 
     def test_wrong_details_lower_the_score(self):
-        right = matching.combine(0.8, 9, "plug", 9, "plug")["score"]
-        self.assertLess(matching.combine(0.8, 9, "plug", 25, "plug")["score"], right)
-        self.assertLess(matching.combine(0.8, 9, "plug", 9, "socket")["score"], right)
+        same = info(9, "plug", 12, "computing")
+        right = matching.combine(0.8, same, same)["score"]
+        for wrong in (info(25, "plug", 12, "computing"), info(9, "socket", 12, "computing"),
+                      info(9, "plug", 30, "computing"), info(9, "plug", 12, "automotive")):
+            self.assertLess(matching.combine(0.8, same, wrong)["score"], right, wrong)
 
     def test_close_pin_counts_beat_far_ones(self):
-        close = matching.combine(0.8, 9, "unknown", 10, "unknown")["score"]
-        far = matching.combine(0.8, 9, "unknown", 25, "unknown")["score"]
+        close = matching.combine(0.8, info(9), info(10))["score"]
+        far = matching.combine(0.8, info(9), info(25))["score"]
         self.assertGreater(close, far)
 
     def test_42_pins_against_24_pins_is_a_poor_match(self):
-        self.assertLess(matching.combine(0.8, 42, "unknown", 24, "unknown")["score"], 0.35)
+        self.assertLess(matching.combine(0.8, info(42), info(24))["score"], 0.35)
+
+    def test_sizes_within_15_percent_count_as_the_same(self):
+        self.assertEqual(matching.size_score(12, 13.5), 1.0)
+        self.assertEqual(matching.size_score(3.5, 6.35), matching.size_score(6.35, 3.5))
+        self.assertLess(matching.size_score(3.5, 6.35), 0.4)   # mini-jack vs quarter-inch jack
+        self.assertEqual(matching.size_score(5, 50), 0.0)
+
+    def test_same_looking_connectors_are_separated_by_size(self):
+        small = matching.combine(0.95, info(size=3.5), info(size=3.5))["score"]
+        big = matching.combine(0.95, info(size=3.5), info(size=6.35))["score"]
+        self.assertGreater(small - big, 0.3)
+
+    def test_other_and_unknown_industry_never_count_against(self):
+        base = matching.combine(0.8, NOTHING, NOTHING)["score"]
+        for query, other in (("other", "computing"), ("computing", "other"), ("unknown", "computing")):
+            self.assertAlmostEqual(matching.combine(0.8, info(industry=query), info(industry=other))["score"], base)
+
+    def test_modes_ignore_prefer_require(self):
+        query, other = info(9, "plug"), info(25, "socket")
+        prefer = matching.combine(0.8, query, other)
+        ignore = matching.combine(0.8, query, other, {"pins": "ignore", "gender": "ignore"})
+        require = matching.combine(0.8, query, other, {"pins": "require"})
+        self.assertAlmostEqual(ignore["score"], matching.calibrate(0.8))
+        self.assertIsNone(ignore["pin_score"])
+        self.assertFalse(prefer["excluded"])
+        self.assertTrue(require["excluded"])
+        self.assertFalse(matching.combine(0.8, info(9), info(9), {"pins": "require"})["excluded"])
+        self.assertFalse(matching.combine(0.8, info(9), info(None), {"pins": "require"})["excluded"])  # unknown: benefit of the doubt
 
 
 class SearchTests(unittest.TestCase):
@@ -121,15 +159,25 @@ class SearchTests(unittest.TestCase):
         self.folder.cleanup()
 
     def test_best_match_comes_first(self):
-        results = matching.search(self.path, d_sub_like(10, 10), pins=5, gender="plug")
+        results = matching.search(self.path, d_sub_like(10, 10), {"pins": 5, "gender": "plug"})
         self.assertEqual([r["name"] for r in results], ["D-like", "Round-like"])
         self.assertGreater(results[0]["score"], 0.95)
         self.assertLess(results[1]["score"], 0.3)  # a round connector is not a D-sub
 
     def test_connector_details_are_not_overwritten_by_scores(self):
-        best = matching.search(self.path, d_sub_like(), pins=5, gender="plug")[0]
+        best = matching.search(self.path, d_sub_like(), {"pins": 5, "gender": "plug"})[0]
         self.assertEqual((best["pins"], best["gender"]), (5, "plug"))
         self.assertIn("pin_score", best)
+
+    def test_require_drops_connectors_that_disagree(self):
+        results = matching.search(self.path, d_sub_like(), {"pins": 3}, {"pins": "require"})
+        self.assertEqual([r["name"] for r in results], ["Round-like"])
+
+    def test_only_checked_leaves_out_drafts(self):
+        db.add_connector(self.path, "Draft", 5, "plug", "other", d_sub_like(), reviewed=False)
+        names = [r["name"] for r in matching.search(self.path, d_sub_like(), only_checked=True)]
+        self.assertNotIn("Draft", names)
+        self.assertIn("Draft", [r["name"] for r in matching.search(self.path, d_sub_like())])
 
     def test_limit(self):
         self.assertEqual(len(matching.search(self.path, d_sub_like(), limit=1)), 1)

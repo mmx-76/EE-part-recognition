@@ -11,8 +11,10 @@ How a drawing is compared, in plain English:
 4. AVERAGE the layers using LAYER_WEIGHTS. Layers empty in both drawings are skipped.
 5. CALIBRATE: unrelated drawings still share some accidental overlap (about 0.25), so anything at
    or below SHAPE_FLOOR counts as 0% and an exact copy as 100%.
-6. Apply the details as GUARDS: if both sides know the pin count (or plug/socket) and they
-   disagree, the score is multiplied down. Agreeing details never add points to a poor shape.
+6. Apply the details as GUARDS: if both sides know the pin count, plug/socket, size or industry
+   and they disagree, the score is multiplied down. Agreeing details never add points to a poor
+   shape. The advanced search can ignore a detail, or require it (dropping connectors that
+   disagree).
 
 Everything tunable is in the constants below.
 """
@@ -41,6 +43,22 @@ CONTACT_COUNT_WEIGHT = 4.0
 # Details only ever lower the score. These are the lowest multipliers (all details wrong).
 PIN_COUNT_FLOOR = 0.2        # a hopelessly wrong pin count keeps only 20% of the shape score
 GENDER_MISMATCH_FACTOR = 0.6  # plug vs socket mix-up keeps 60%
+SIZE_FLOOR = 0.3             # a hopelessly wrong size keeps 30%
+INDUSTRY_MISMATCH_FACTOR = 0.85  # industries are fuzzy, so this is only a gentle nudge
+
+# Sizes are measured by eye or ruler, so be forgiving: within about 15% counts as the same size,
+# and below 40% of the other size counts as completely different.
+SIZE_SAME_RATIO = 0.85
+SIZE_DIFFERENT_RATIO = 0.4
+
+# "other" and "unknown" say nothing useful about the industry, so they never count for or against.
+NEUTRAL_INDUSTRIES = ("unknown", "other")
+
+# How strictly each detail is applied (the advanced search lets the user change these):
+#   ignore  - don't use it at all      prefer - lower the score when it disagrees (the default)
+#   require - drop connectors whose known value disagrees (unknown values are given the benefit of the doubt)
+MODES = ("ignore", "prefer", "require")
+DETAILS = ("pins", "gender", "size", "industry")
 
 TOLERANCE = [1.0, 0.7, 0.35]  # credit for a cell that is 0, 1 or 2 cells from one in the other drawing
 
@@ -157,19 +175,48 @@ def pin_count_score(a, b):
     return (min(a, b) / max(a, b)) ** 2
 
 
-def combine(raw_drawing, query_pins, query_gender, other_pins, other_gender):
-    """Turn the raw drawing similarity and the details into the final score and its breakdown."""
+def size_score(a, b):
+    """1.0 when sizes agree to within about 15%, falling to 0.0 when one is under 40% of the other."""
+    ratio = min(a, b) / max(a, b)
+    return min(1.0, max(0.0, (ratio - SIZE_DIFFERENT_RATIO) / (SIZE_SAME_RATIO - SIZE_DIFFERENT_RATIO)))
+
+
+def combine(raw_drawing, query, other, modes=None):
+    """Turn the raw drawing similarity and the details into the final score and its breakdown.
+
+    `query` and `other` are dicts with pins, gender, size_mm and industry (None / "unknown" when
+    not known). `modes` says how strictly to apply each detail (see MODES)."""
+    modes = dict({name: "prefer" for name in DETAILS}, **(modes or {}))
     shape = calibrate(raw_drawing)
     score = shape
-    pin_part = gender_part = None
-    if query_pins is not None and other_pins is not None:
-        pin_part = pin_count_score(query_pins, other_pins)
-        score *= PIN_COUNT_FLOOR + (1 - PIN_COUNT_FLOOR) * pin_part
-    if query_gender != "unknown" and other_gender != "unknown":
-        gender_part = 1.0 if query_gender == other_gender else 0.0
-        score *= 1.0 if gender_part else GENDER_MISMATCH_FACTOR
-    return {"score": score, "drawing_score": shape, "pin_score": pin_part,
-            "gender_score": gender_part}
+    excluded = False
+    parts = {"pins": None, "gender": None, "size": None, "industry": None}
+
+    if modes["pins"] != "ignore" and query.get("pins") is not None and other.get("pins") is not None:
+        parts["pins"] = pin_count_score(query["pins"], other["pins"])
+        excluded |= modes["pins"] == "require" and query["pins"] != other["pins"]
+        score *= PIN_COUNT_FLOOR + (1 - PIN_COUNT_FLOOR) * parts["pins"]
+
+    if modes["gender"] != "ignore" and "unknown" not in (query.get("gender"), other.get("gender")):
+        parts["gender"] = 1.0 if query["gender"] == other["gender"] else 0.0
+        excluded |= modes["gender"] == "require" and parts["gender"] == 0.0
+        score *= 1.0 if parts["gender"] else GENDER_MISMATCH_FACTOR
+
+    if modes["size"] != "ignore" and query.get("size_mm") is not None and other.get("size_mm") is not None:
+        parts["size"] = size_score(query["size_mm"], other["size_mm"])
+        ratio = min(query["size_mm"], other["size_mm"]) / max(query["size_mm"], other["size_mm"])
+        excluded |= modes["size"] == "require" and ratio < SIZE_SAME_RATIO
+        score *= SIZE_FLOOR + (1 - SIZE_FLOOR) * parts["size"]
+
+    if (modes["industry"] != "ignore" and query.get("industry") not in NEUTRAL_INDUSTRIES
+            and other.get("industry") not in NEUTRAL_INDUSTRIES):
+        parts["industry"] = 1.0 if query["industry"] == other["industry"] else 0.0
+        excluded |= modes["industry"] == "require" and parts["industry"] == 0.0
+        score *= 1.0 if parts["industry"] else INDUSTRY_MISMATCH_FACTOR
+
+    return {"score": score, "drawing_score": shape, "pin_score": parts["pins"],
+            "gender_score": parts["gender"], "size_score": parts["size"],
+            "industry_score": parts["industry"], "excluded": excluded}
 
 
 _prepared_cache = {}  # drawing (as a tuple of rows) -> prepared layers; saves redoing the maths
@@ -184,18 +231,26 @@ def _prepare_cached(rows):
     return _prepared_cache[key]
 
 
-def search(path, rows, pins=None, gender="unknown", limit=5):
-    """Rank every saved connector against the query. Best match first."""
+def search(path, rows, details=None, modes=None, limit=5, only_checked=False):
+    """Rank saved connectors against the query. Best match first.
+
+    details: what the user knows (pins, gender, size_mm, industry); modes: how strictly to apply
+    each (see MODES); only_checked: leave out unchecked starter drafts."""
     query = prepare(rows)
     if query is None:
         raise db.InvalidConnector("The drawing is empty. Draw the connector first.")
+    details = dict({"pins": None, "gender": "unknown", "size_mm": None, "industry": "unknown"},
+                   **(details or {}))
     results = []
     for full in db.list_connectors(path, include_rows=True):
+        if only_checked and not full["reviewed"]:
+            continue
         candidate = _prepare_cached(full["rows"])
         if candidate is None:
             continue
-        breakdown = combine(drawing_score(query, candidate), pins, gender,
-                            full["pins"], full["gender"])
+        breakdown = combine(drawing_score(query, candidate), details, full, modes)
+        if breakdown.pop("excluded"):
+            continue
         full.update(breakdown)
         results.append(full)
     results.sort(key=lambda item: item["score"], reverse=True)

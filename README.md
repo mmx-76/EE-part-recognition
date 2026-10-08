@@ -10,7 +10,7 @@ similarity.
 
 ## Status
 
-Milestone 1 nearly done: drawing canvas, details form, database, search and a 34-connector starter set all work. Remaining: polish and checking the starter drawings against real connectors. See [PROJECT_NOTES.md](PROJECT_NOTES.md) for the
+Milestone 1 is done and Milestone 2 has started: draw a connector (shapes, pin patterns, eraser), add what you know (pins, plug/socket, size, industry), and get a ranked, scored top matches from a database of 35 starter connectors that you can correct and grow. Advanced search lets you require, prefer or ignore each detail. Works with touch on a phone-sized screen. See [PROJECT_NOTES.md](PROJECT_NOTES.md) for the
 scope, decisions, roadmap and next step.
 
 ## Planned tech

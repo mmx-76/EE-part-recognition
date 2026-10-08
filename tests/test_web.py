@@ -53,6 +53,56 @@ class EditRouteTests(unittest.TestCase):
         self.assertEqual(self.client.patch("/api/connectors/999/reviewed", json={}).status_code, 404)
 
 
+class SizeAndOptionsRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        path = os.path.join(self.folder.name, "opts.db")
+        app_module.app.config["DATABASE"] = path
+        db.init_db(path)
+        self.client = app_module.app.test_client()
+        small = {"name": "Small", "details": {"pins": 3, "gender": "plug", "industry": "audio_video", "size_mm": 3.5},
+                 "rows": rows_with("P", 6)}
+        big = dict(small, name="Big", details=dict(small["details"], size_mm=6.35))
+        self.client.post("/api/connectors", json=small)
+        self.client.post("/api/connectors", json=big)
+
+    def tearDown(self):
+        self.folder.cleanup()
+
+    def search(self, details=None, options=None):
+        return self.client.post("/api/search", json={"rows": rows_with("P", 6), "details": details or {},
+                                                    "options": options or {}})
+
+    def test_size_is_saved_and_returned(self):
+        sizes = {c["name"]: c["size_mm"] for c in self.client.get("/api/connectors").get_json()}
+        self.assertEqual(sizes, {"Small": 3.5, "Big": 6.35})
+
+    def test_size_ranks_look_alikes(self):
+        matches = self.search({"size_mm": 6.35}).get_json()
+        self.assertEqual(matches[0]["name"], "Big")
+        self.assertEqual(matches[0]["size_score"], 100)
+        self.assertLess(matches[1]["score"], matches[0]["score"] - 25)
+
+    def test_require_removes_and_ignore_keeps(self):
+        required = self.search({"size_mm": 6.35}, {"size": "require"}).get_json()
+        self.assertEqual([m["name"] for m in required], ["Big"])
+        ignored = self.search({"size_mm": 6.35}, {"size": "ignore"}).get_json()
+        self.assertEqual(len(ignored), 2)
+        self.assertEqual(ignored[0]["score"], ignored[1]["score"])
+
+    def test_limit_and_only_checked(self):
+        db.set_reviewed(app_module.app.config["DATABASE"], 1, False)
+        self.assertEqual(len(self.search(options={"only_checked": True}).get_json()), 1)
+        self.assertEqual(len(self.search(options={"limit": 10}).get_json()), 2)
+
+    def test_bad_options_are_a_400(self):
+        self.assertEqual(self.search(options={"size": "maybe"}).status_code, 400)
+        self.assertEqual(self.search(options={"limit": 7}).status_code, 400)
+        self.assertEqual(self.search({"size_mm": -3}).status_code, 400)
+        self.assertEqual(self.search({"size_mm": "wide"}).status_code, 400)
+        self.assertEqual(self.search({"industry": "space"}).status_code, 400)
+
+
 class SearchRouteTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()

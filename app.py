@@ -40,6 +40,7 @@ def api_add():
             gender=details.get("gender", "unknown"),
             industry=details.get("industry", "unknown"),
             rows=data.get("rows"),
+            size_mm=details.get("size_mm"),
         )
     except db.InvalidConnector as problem:
         return jsonify(error=str(problem)), 400
@@ -58,6 +59,7 @@ def api_update(connector_id):
             gender=details.get("gender", "unknown"),
             industry=details.get("industry", "unknown"),
             rows=data.get("rows"),
+            size_mm=details.get("size_mm"),
         )
     except db.InvalidConnector as problem:
         return jsonify(error=str(problem)), 400
@@ -78,16 +80,29 @@ def api_reviewed(connector_id):
 def api_search():
     data = request.get_json(silent=True) or {}
     details = data.get("details") or {}
-    pins = details.get("pins")
+    options = data.get("options") or {}
     gender = details.get("gender", "unknown")
+    modes = {name: options.get(name, "prefer") for name in matching.DETAILS}
+    limit = options.get("limit", 5)
     try:
         db.validate_rows(data.get("rows"))
-        db.validate_pins_and_gender(pins, gender)
-        matches = matching.search(app.config["DATABASE"], data["rows"], pins, gender, limit=5)
+        db.validate_pins_and_gender(details.get("pins"), gender)
+        db.validate_size(details.get("size_mm"))
+        if details.get("industry", "unknown") not in db.INDUSTRIES:
+            raise db.InvalidConnector("Unknown industry value.")
+        if any(mode not in matching.MODES for mode in modes.values()):
+            raise db.InvalidConnector("Unknown search option.")
+        if limit not in (5, 10, 20):
+            raise db.InvalidConnector("Results to show must be 5, 10 or 20.")
+        matches = matching.search(
+            app.config["DATABASE"], data["rows"],
+            details={"pins": details.get("pins"), "gender": gender, "size_mm": details.get("size_mm"),
+                     "industry": details.get("industry", "unknown")},
+            modes=modes, limit=limit, only_checked=bool(options.get("only_checked", False)))
     except db.InvalidConnector as problem:
         return jsonify(error=str(problem)), 400
     for match in matches:  # show every score as a whole percentage
-        for key in ("score", "drawing_score", "pin_score", "gender_score"):
+        for key in ("score", "drawing_score", "pin_score", "gender_score", "size_score", "industry_score"):
             if match[key] is not None:
                 match[key] = round(match[key] * 100)
     return jsonify(matches)
