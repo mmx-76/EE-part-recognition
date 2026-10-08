@@ -88,11 +88,11 @@ def _to_dict(row, include_rows):
     return result
 
 
-def list_connectors(path):
-    """Every connector, without the drawing (the list stays small and fast)."""
+def list_connectors(path, include_rows=False):
+    """Every connector. By default without the drawing, so the list stays small and fast."""
     with connect(path) as connection:
         rows = connection.execute("SELECT * FROM connectors ORDER BY name COLLATE NOCASE").fetchall()
-    return [_to_dict(r, include_rows=False) for r in rows]
+    return [_to_dict(r, include_rows=include_rows) for r in rows]
 
 
 def get_connector(path, connector_id):

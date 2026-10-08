@@ -152,15 +152,26 @@ def combine(drawing, query_pins, query_gender, other_pins, other_gender):
             "gender_score": gender_part}
 
 
+_prepared_cache = {}  # drawing (as a tuple of rows) -> prepared layers; saves redoing the maths
+
+
+def _prepare_cached(rows):
+    key = tuple(rows)
+    if key not in _prepared_cache:
+        if len(_prepared_cache) > 5000:  # never let it grow without limit
+            _prepared_cache.clear()
+        _prepared_cache[key] = prepare(rows)
+    return _prepared_cache[key]
+
+
 def search(path, rows, pins=None, gender="unknown", limit=5):
     """Rank every saved connector against the query. Best match first."""
     query = prepare(rows)
     if query is None:
         raise db.InvalidConnector("The drawing is empty. Draw the connector first.")
     results = []
-    for summary in db.list_connectors(path):
-        full = db.get_connector(path, summary["id"])
-        candidate = prepare(full["rows"])
+    for full in db.list_connectors(path, include_rows=True):
+        candidate = _prepare_cached(full["rows"])
         if candidate is None:
             continue
         breakdown = combine(drawing_score(query, candidate), pins, gender,
