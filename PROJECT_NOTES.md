@@ -113,19 +113,17 @@ closest matches from a database of known connectors, with a similarity score.
 
 ## Git notes
 
-- Claude commits on branch `claude/connector-identification-app-dljcow`.
-- GitHub `main` was created (by mistake, at the same commit as the work branch) when we tried
-  to open PR #1; it therefore already contains everything up to the database. Max chose to skip
-  a PR for that chunk. **From the search feature onward, all work goes through pull requests**:
-  work lands on the branch, Max reviews the PR on GitHub, Max clicks Merge.
-- To check: GitHub Settings -> Branches -> default branch should be `main`.
+- Claude commits on branch `claude/connector-identification-app-dljcow`; each chunk of work goes
+  to `main` through a pull request that Max reviews and merges on GitHub.
+- PR #1 (search, starter database, calibrated scoring, centred saves) is MERGED. The work branch
+  was reset to the new `main`, so new work starts clean.
 - Max's local clone: `git switch main` then `git pull` gets the merged work.
+- To check once: GitHub Settings -> Branches -> default branch should be `main`.
 
 ## Next step
 
-1. Max pulls the branch, runs `py seed_db.py`, tries searches with his own drawings and reports how
-   the results feel (are the right connectors found? do the scores make sense?).
-2. Max reviews the 34 starter drawings (Saved connectors -> Load) and flags any that look wrong.
-3. Review and merge PR #2 (search, starter database, scoring fix, centring) on GitHub.
-4. Then Milestone 1 polish: page layout (details/search closer to the grid), "Add to database"
-   wording, mobile touch check. Then Milestone 2 (advanced search: industry, size, weighting).
+PR #1 merged = the MVP's core is done (draw, details, database, ranked search). Max to choose
+what comes next (see chat): (A) Milestone 1 polish - layout, wording, phone touch; (B) database
+quality - edit/update an existing connector, checking starter drawings; (C) Milestone 2 start -
+size + industry in the score, advanced search. Also still open: Max's feedback on how search
+feels with his own drawings.
