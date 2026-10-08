@@ -78,10 +78,17 @@ closest matches from a database of known connectors, with a similarity score.
 ## Roadmap
 
 - Phase 0: Setup and scope (done)
-- Milestone 1 (MVP): project skeleton -> paintable grid -> database + seed data -> feature
-  extraction -> similarity search + ranked results -> add-to-database
-- Milestone 2: advanced search (industry, weighting), better scoring, bigger database
-- Milestone 3: freehand drawing, photo input, polish, possible online hosting
+- Milestone 1 (MVP): draw, details, database, ranked search (done, merged in PR #1)
+- Milestone 2: smarter, trustworthy search (PR #2 when done)
+  - Done: size/industry scoring, advanced search, editing tools, page polish
+  - Batch 4: safety net (export/import, automatic backups) + feedback loop ("this is it" /
+    "not found" buttons, accuracy summary)
+  - Batch 5: grow the database. Max's priorities: Harting Han + D-types, RF coaxial,
+    communications, more RF, heavy power cables
+  - Batch 6: tune the matching from Max's recorded real-world searches
+- Milestone 3: ease of use (PR #3): freehand drawing converted to the grid; host online so it works
+  from a phone away from the PC (with a password); reference photos attached to connectors;
+  maybe photo search (research, not guaranteed)
 
 ## Done
 
@@ -128,12 +135,14 @@ closest matches from a database of known connectors, with a similarity score.
 
 ## Git notes
 
-- Claude commits on branch `claude/connector-identification-app-dljcow`; each chunk of work goes
-  to `main` through a pull request that Max reviews and merges on GitHub.
-- PR #1 (search, starter database, calibrated scoring, centred saves) is MERGED. The work branch
-  was reset to the new `main`, so new work starts clean.
-- Max's local clone: `git switch main` then `git pull` gets the merged work.
+- Claude commits on branch `claude/connector-identification-app-dljcow` after every step.
+- **PR policy (Max's decision): one pull request per milestone**, opened only when Max asks.
+  PR #1 (Milestone 1 core) is merged. PR #2 will close Milestone 2; PR #3 will close Milestone 3.
+- Max stays on the work branch locally: `git switch claude/connector-identification-app-dljcow`
+  once, then `git pull` each session. `main` is only updated when a milestone PR is merged.
 - To check once: GitHub Settings -> Branches -> default branch should be `main`.
+- `connectors.db` (Max's database) is NOT in git. Backups: automatic dated copies in `backups/`
+  (daily, last 14 kept) plus export/import in the app.
 
 ## Next step
 
