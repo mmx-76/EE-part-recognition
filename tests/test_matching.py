@@ -81,7 +81,7 @@ class CombineTests(unittest.TestCase):
     def test_unknown_details_are_ignored(self):
         result = matching.combine(0.8, None, "unknown", 9, "plug")
         self.assertAlmostEqual(result["score"], 0.8)
-        self.assertIsNone(result["pins"])
+        self.assertIsNone(result["pin_score"])
 
     def test_matching_details_lift_the_score(self):
         with_details = matching.combine(0.8, 9, "plug", 9, "plug")["score"]
@@ -111,6 +111,11 @@ class SearchTests(unittest.TestCase):
         results = matching.search(self.path, d_sub_like(10, 10), pins=5, gender="plug")
         self.assertEqual([r["name"] for r in results], ["D-like", "Round-like"])
         self.assertGreater(results[0]["score"], 0.95)
+
+    def test_connector_details_are_not_overwritten_by_scores(self):
+        best = matching.search(self.path, d_sub_like(), pins=5, gender="plug")[0]
+        self.assertEqual((best["pins"], best["gender"]), (5, "plug"))
+        self.assertIn("pin_score", best)
 
     def test_limit(self):
         self.assertEqual(len(matching.search(self.path, d_sub_like(), limit=1)), 1)

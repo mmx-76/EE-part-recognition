@@ -148,7 +148,8 @@ def combine(drawing, query_pins, query_gender, other_pins, other_gender):
         gender_part = 1.0 if query_gender == other_gender else 0.0
         parts.append((GENDER_WEIGHT, gender_part))
     score = sum(w * s for w, s in parts) / sum(w for w, _ in parts)
-    return {"score": score, "drawing": drawing, "pins": pin_part, "gender": gender_part}
+    return {"score": score, "drawing_score": drawing, "pin_score": pin_part,
+            "gender_score": gender_part}
 
 
 def search(path, rows, pins=None, gender="unknown", limit=5):

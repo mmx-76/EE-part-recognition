@@ -25,6 +25,18 @@
     #details input, #details select { font-size: 14px; padding: 4px; }
     #stored { margin-bottom: 30px; font-size: 14px; }
     #storedText { font-size: 9px; line-height: 9px; background: #f4f4f4; padding: 8px; overflow-x: auto; }
+    #search { margin: 16px 0 8px; display: flex; gap: 10px; align-items: center; }
+    #searchButton { background: #1f6feb; color: #fff; border: 0; border-radius: 6px;
+                    padding: 12px 22px; font-size: 16px; font-weight: bold; }
+    #searchMessage { font-size: 14px; color: #b00020; }
+    #results { padding-left: 24px; margin-bottom: 24px; }
+    #results li { margin-bottom: 14px; }
+    .match { display: flex; gap: 12px; align-items: flex-start; }
+    .match canvas { border: 1px solid #888; background: #fff; flex: none; cursor: default; }
+    .match .name { font-weight: bold; font-size: 16px; }
+    .match .bar { height: 10px; background: #e3e3e3; border-radius: 5px; width: 200px; margin: 4px 0; }
+    .match .bar div { height: 10px; background: #1f6feb; border-radius: 5px; }
+    .match .why { font-size: 13px; color: #444; }
     #save { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 16px; }
     #save label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
     #save input { font-size: 14px; padding: 6px; width: 240px; }
@@ -99,6 +111,12 @@
       </select>
     </label>
   </fieldset>
+
+  <div id="search">
+    <button class="action" id="searchButton">Search for matches</button>
+    <span id="searchMessage"></span>
+  </div>
+  <ol id="results"></ol>
 
   <div id="save">
     <label>Name
@@ -515,6 +533,73 @@
 
     document.getElementById("saveButton").addEventListener("click", saveConnector);
     refreshSavedList();
+
+    // ---- Searching ------------------------------------------------------------
+    // Draw a connector's saved rows as a small picture (3 screen pixels per grid cell).
+    function drawThumbnail(canvasElement, rows) {
+      const pixels = 3;
+      canvasElement.width = GRID_SIZE * pixels;
+      canvasElement.height = GRID_SIZE * pixels;
+      const thumbContext = canvasElement.getContext("2d");
+      rows.forEach((line, row) => {
+        Array.from(line).forEach((letter, col) => {
+          thumbContext.fillStyle = ELEMENTS[LETTER_TO_ID[letter]].colour;
+          thumbContext.fillRect(col * pixels, row * pixels, pixels, pixels);
+        });
+      });
+    }
+
+    function describeMatch(match) {
+      const parts = ["shape " + match.drawing_score + "%"];
+      if (match.pin_score !== null) parts.push("pin count " + match.pin_score + "%");
+      if (match.gender_score !== null) {
+        parts.push(match.gender_score === 100 ? "plug/socket agrees" : "plug/socket differs");
+      }
+      return parts.join(" \u00b7 ");
+    }
+
+    async function searchDatabase() {
+      const message = document.getElementById("searchMessage");
+      const resultsList = document.getElementById("results");
+      message.textContent = "";
+      const drawing = currentDrawing();
+      const response = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ details: drawing.details, rows: drawing.rows }),
+      });
+      const matches = await response.json();
+      resultsList.innerHTML = "";
+      if (!response.ok) {
+        message.textContent = matches.error;
+        return;
+      }
+      if (matches.length === 0) {
+        message.textContent = "The database is empty, so there is nothing to match against yet.";
+        return;
+      }
+      for (const match of matches) {
+        const item = document.createElement("li");
+        const picture = document.createElement("canvas");
+        drawThumbnail(picture, match.rows);
+        const text = document.createElement("div");
+        text.innerHTML = '<div class="name"></div><div class="bar"><div></div></div>' +
+                         '<div class="why"></div><div class="why details"></div>';
+        text.querySelector(".name").textContent = match.name + " \u2014 " + match.score + "% match";
+        text.querySelector(".bar div").style.width = match.score + "%";
+        text.querySelector(".why").textContent = describeMatch(match);
+        text.querySelector(".details").textContent =
+          (match.pins === null ? "? pins" : match.pins + " pins") + ", " +
+          match.gender + ", " + match.industry;
+        const wrapper = document.createElement("div");
+        wrapper.className = "match";
+        wrapper.append(picture, text);
+        item.appendChild(wrapper);
+        resultsList.appendChild(item);
+      }
+    }
+
+    document.getElementById("searchButton").addEventListener("click", searchDatabase);
 
     makeEmptyGrid();
     draw();

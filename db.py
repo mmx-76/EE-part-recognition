@@ -36,20 +36,8 @@ def init_db(path):
         connection.executescript(SCHEMA)
 
 
-def validate(name, pins, gender, industry, rows):
-    """Return cleaned-up values, or raise InvalidConnector with a plain-English reason."""
-    name = (name or "").strip()
-    if not name:
-        raise InvalidConnector("Please give the connector a name.")
-    if len(name) > 100:
-        raise InvalidConnector("The name is too long (100 characters max).")
-    if pins is not None:
-        if not isinstance(pins, int) or isinstance(pins, bool) or not 1 <= pins <= 500:
-            raise InvalidConnector("Pin count must be a whole number from 1 to 500, or blank.")
-    if gender not in GENDERS:
-        raise InvalidConnector("Unknown plug/socket value.")
-    if industry not in INDUSTRIES:
-        raise InvalidConnector("Unknown industry value.")
+def validate_rows(rows):
+    """Check a drawing is 32 rows of 32 valid letters and not completely empty."""
     if not isinstance(rows, list) or len(rows) != GRID_SIZE:
         raise InvalidConnector("The drawing must have %d rows." % GRID_SIZE)
     for row in rows:
@@ -57,6 +45,27 @@ def validate(name, pins, gender, industry, rows):
             raise InvalidConnector("Each drawing row must be %d valid letters." % GRID_SIZE)
     if all(c == "." for row in rows for c in row):
         raise InvalidConnector("The drawing is empty. Draw the connector first.")
+
+
+def validate_pins_and_gender(pins, gender):
+    if pins is not None:
+        if not isinstance(pins, int) or isinstance(pins, bool) or not 1 <= pins <= 500:
+            raise InvalidConnector("Pin count must be a whole number from 1 to 500, or blank.")
+    if gender not in GENDERS:
+        raise InvalidConnector("Unknown plug/socket value.")
+
+
+def validate(name, pins, gender, industry, rows):
+    """Return cleaned-up values, or raise InvalidConnector with a plain-English reason."""
+    name = (name or "").strip()
+    if not name:
+        raise InvalidConnector("Please give the connector a name.")
+    if len(name) > 100:
+        raise InvalidConnector("The name is too long (100 characters max).")
+    validate_pins_and_gender(pins, gender)
+    if industry not in INDUSTRIES:
+        raise InvalidConnector("Unknown industry value.")
+    validate_rows(rows)
     return name, pins, gender, industry
 
 

@@ -3,6 +3,7 @@ import os
 from flask import Flask, jsonify, render_template, request
 
 import db
+import matching
 
 app = Flask(__name__)
 app.config["DATABASE"] = os.path.join(app.root_path, "connectors.db")
@@ -42,6 +43,25 @@ def api_add():
     except db.InvalidConnector as problem:
         return jsonify(error=str(problem)), 400
     return jsonify(id=new_id), 201
+
+
+@app.post("/api/search")
+def api_search():
+    data = request.get_json(silent=True) or {}
+    details = data.get("details") or {}
+    pins = details.get("pins")
+    gender = details.get("gender", "unknown")
+    try:
+        db.validate_rows(data.get("rows"))
+        db.validate_pins_and_gender(pins, gender)
+        matches = matching.search(app.config["DATABASE"], data["rows"], pins, gender, limit=5)
+    except db.InvalidConnector as problem:
+        return jsonify(error=str(problem)), 400
+    for match in matches:  # show every score as a whole percentage
+        for key in ("score", "drawing_score", "pin_score", "gender_score"):
+            if match[key] is not None:
+                match[key] = round(match[key] * 100)
+    return jsonify(matches)
 
 
 @app.delete("/api/connectors/<int:connector_id>")
