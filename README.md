@@ -10,7 +10,7 @@ similarity.
 
 ## Status
 
-Milestone 1 is done and Milestone 2 has started: draw a connector (shapes, pin patterns, eraser), add what you know (pins, plug/socket, size, industry), and get a ranked, scored top matches from a database of 35 starter connectors that you can correct and grow. Advanced search lets you require, prefer or ignore each detail. Works with touch on a phone-sized screen. See [PROJECT_NOTES.md](PROJECT_NOTES.md) for the
+Milestone 1 is done and Milestone 2 has started: draw a connector (shapes, pin patterns, eraser), add what you know (pins, plug/socket, size, industry), and get a ranked, scored top matches from a database of 192 starter connectors (D-subs, Harting Han, RF coax, comms, fibre, heavy power and more) that you can correct and grow, with automatic daily backups. Advanced search lets you require, prefer or ignore each detail. Works with touch on a phone-sized screen. See [PROJECT_NOTES.md](PROJECT_NOTES.md) for the
 scope, decisions, roadmap and next step.
 
 ## Planned tech

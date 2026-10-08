@@ -179,6 +179,11 @@ class SearchTests(unittest.TestCase):
         self.assertNotIn("Draft", names)
         self.assertIn("Draft", [r["name"] for r in matching.search(self.path, d_sub_like())])
 
+    def test_warming_the_cache_prepares_every_saved_drawing(self):
+        matching._prepared_cache.clear()
+        matching.warm_cache(self.path)
+        self.assertEqual(len(matching._prepared_cache), 2)
+
     def test_limit(self):
         self.assertEqual(len(matching.search(self.path, d_sub_like(), limit=1)), 1)
 

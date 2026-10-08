@@ -8,7 +8,7 @@ import sqlite3
 GRID_SIZE = 32
 CELL_CODES = ".HSPOK"  # empty, housing, shell, pin, socket, key
 GENDERS = ["unknown", "plug", "socket"]
-INDUSTRIES = ["unknown", "automotive", "audio_video", "computing", "networking",
+INDUSTRIES = ["unknown", "automotive", "audio_video", "computing", "networking", "rf_microwave",
               "industrial", "aerospace", "mains_power", "medical", "other"]
 
 SCHEMA = """

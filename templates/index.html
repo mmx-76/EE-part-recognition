@@ -77,6 +77,7 @@
     #savedList li { padding: 6px 0; border-bottom: 1px solid #ddd; display: flex; gap: 8px;
                     align-items: center; flex-wrap: wrap; }
     #editingBanner { flex-basis: 100%; font-size: 14px; font-weight: bold; color: #1f6feb; }
+    #listFilter { width: 100%; max-width: 420px; padding: 8px; font-size: 14px; margin: 4px 0 8px; box-sizing: border-box; }
     #reviewSummary { font-size: 14px; margin-bottom: 6px; }
     #onlyUncheckedLabel { font-size: 14px; display: block; margin-bottom: 8px; }
     .badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
@@ -169,6 +170,7 @@
         <option value="audio_video">Audio / video</option>
         <option value="computing">Computing / IT</option>
         <option value="networking">Networking / telecom</option>
+        <option value="rf_microwave">RF / microwave</option>
         <option value="industrial">Industrial</option>
         <option value="aerospace">Aerospace / military</option>
         <option value="mains_power">Mains / power</option>
@@ -210,6 +212,7 @@
 
   <h2>Saved connectors</h2>
   <div id="reviewSummary"></div>
+  <input type="search" id="listFilter" placeholder="Filter the list by name, e.g. han, sma, usb" aria-label="Filter the saved list by name">
   <label id="onlyUncheckedLabel"><input type="checkbox" id="onlyUnchecked"> Show only drawings I haven't checked yet</label>
   <ul id="savedList"></ul>
 
@@ -602,9 +605,11 @@
         unchecked === 0 ? "All " + savedConnectors.length + " drawings are checked."
           : unchecked + " of " + savedConnectors.length + " drawings still need checking (starter drafts).";
       const onlyUnchecked = document.getElementById("onlyUnchecked").checked;
-      const shown = savedConnectors.filter(c => !onlyUnchecked || !c.reviewed);
+      const words = document.getElementById("listFilter").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const shown = savedConnectors.filter(c => (!onlyUnchecked || !c.reviewed) &&
+        words.every(word => c.name.toLowerCase().includes(word)));
       if (shown.length === 0) {
-        list.innerHTML = "<li>" + (savedConnectors.length === 0 ? "Nothing saved yet." : "Nothing to show.") + "</li>";
+        list.innerHTML = "<li>" + (savedConnectors.length === 0 ? "Nothing saved yet." : "Nothing matches that filter.") + "</li>";
         return;
       }
       for (const connector of shown) {
@@ -722,6 +727,7 @@
     document.getElementById("updateButton").addEventListener("click", saveChanges);
     document.getElementById("stopEditingButton").addEventListener("click", stopEditing);
     document.getElementById("onlyUnchecked").addEventListener("change", renderSavedList);
+    document.getElementById("listFilter").addEventListener("input", renderSavedList);
     refreshSavedList();
 
     // ---- Searching ------------------------------------------------------------

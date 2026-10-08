@@ -158,4 +158,5 @@ db.init_db(app.config["DATABASE"])
 
 if __name__ == "__main__":
     db.auto_backup(app.config["DATABASE"])   # a dated copy in the backups folder, once a day
+    matching.warm_cache(app.config["DATABASE"])
     app.run(debug=True)

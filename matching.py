@@ -231,6 +231,12 @@ def _prepare_cached(rows):
     return _prepared_cache[key]
 
 
+def warm_cache(path):
+    """Prepare every saved drawing now, so the first search after the app starts is as fast as the rest."""
+    for connector in db.list_connectors(path, include_rows=True):
+        _prepare_cached(connector["rows"])
+
+
 def search(path, rows, details=None, modes=None, limit=5, only_checked=False):
     """Rank saved connectors against the query. Best match first.
 
