@@ -10,7 +10,7 @@ similarity.
 
 ## Status
 
-Milestone 1 in progress: drawing canvas, details form and database are working; search is next. See [PROJECT_NOTES.md](PROJECT_NOTES.md) for the
+Milestone 1 nearly done: drawing canvas, details form, database, search and a 34-connector starter set all work. Remaining: polish and checking the starter drawings against real connectors. See [PROJECT_NOTES.md](PROJECT_NOTES.md) for the
 scope, decisions, roadmap and next step.
 
 ## Planned tech
@@ -26,6 +26,12 @@ py -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 py app.py
+```
+
+Load the starter connectors once (safe to repeat, never makes duplicates):
+
+```
+py seed_db.py
 ```
 
 Then open http://127.0.0.1:5000. Run the tests with `py -m unittest discover tests`.

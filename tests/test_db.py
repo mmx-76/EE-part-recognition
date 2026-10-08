@@ -30,7 +30,29 @@ class DatabaseTests(unittest.TestCase):
         found = db.get_connector(self.path, new_id)
         self.assertEqual(found["name"], "DE-9")
         self.assertEqual(found["pins"], 9)
-        self.assertEqual(found["rows"], sample_rows())
+        self.assertEqual(found["rows"], db.centre_rows(sample_rows()))
+
+    def test_saved_drawings_are_centred(self):
+        new_id = db.add_connector(self.path, "Corner", 4, "plug", "other", sample_rows())
+        rows = db.get_connector(self.path, new_id)["rows"]
+        drawn_rows = [r for r, row in enumerate(rows) if set(row) != {"."}]
+        drawn_cols = [c for row in rows for c, ch in enumerate(row) if ch != "."]
+        self.assertAlmostEqual(min(drawn_rows), 31 - max(drawn_rows), delta=1)   # equal space above/below
+        self.assertAlmostEqual(min(drawn_cols), 31 - max(drawn_cols), delta=1)   # equal space left/right
+        self.assertEqual("".join(rows).count("P"), 4)                             # nothing lost or resized
+
+    def test_centring_twice_changes_nothing(self):
+        once = db.centre_rows(sample_rows())
+        self.assertEqual(db.centre_rows(once), once)
+
+    def test_old_uncentred_entries_are_centred_when_the_app_starts(self):
+        with db.connect(self.path) as connection:   # simulate a row saved before centring existed
+            connection.execute(
+                "INSERT INTO connectors (name, pins, gender, industry, grid) VALUES (?,?,?,?,?)",
+                ("Old", 4, "plug", "other", "\n".join(sample_rows())))
+        db.init_db(self.path)
+        old = db.list_connectors(self.path, include_rows=True)[0]
+        self.assertEqual(old["rows"], db.centre_rows(sample_rows()))
 
     def test_unknown_pin_count_is_stored_as_none(self):
         new_id = db.add_connector(self.path, "Mystery", None, "unknown", "unknown", sample_rows())

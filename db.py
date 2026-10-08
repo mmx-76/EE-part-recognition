@@ -30,10 +30,57 @@ def connect(path):
     return connection
 
 
+def centre_rows(rows):
+    """Move a drawing (without resizing it) so it sits in the middle of the grid.
+
+    Every saved connector goes through this, so thumbnails and loaded drawings are always
+    centred, wherever on the canvas the original was drawn."""
+    drawn = [(r, c) for r, row in enumerate(rows) for c, ch in enumerate(row) if ch != "."]
+    if not drawn:
+        return list(rows)
+    top = min(r for r, _ in drawn)
+    bottom = max(r for r, _ in drawn)
+    left = min(c for _, c in drawn)
+    right = max(c for _, c in drawn)
+    move_down = (GRID_SIZE - (bottom - top + 1)) // 2 - top
+    move_right = (GRID_SIZE - (right - left + 1)) // 2 - left
+    result = [["."] * GRID_SIZE for _ in range(GRID_SIZE)]
+    for r, c in drawn:
+        result[r + move_down][c + move_right] = rows[r][c]
+    return ["".join(row) for row in result]
+
+
 def init_db(path):
-    """Create the table if it doesn't exist yet. Safe to call every time the app starts."""
+    """Create the table if it doesn't exist yet, and centre any drawing that isn't centred.
+
+    Safe to call every time the app starts."""
     with connect(path) as connection:
         connection.executescript(SCHEMA)
+        for row in connection.execute("SELECT id, grid FROM connectors").fetchall():
+            current = row["grid"].split("\n")
+            centred = centre_rows(current)
+            if centred != current:
+                connection.execute("UPDATE connectors SET grid = ? WHERE id = ?",
+                                   ("\n".join(centred), row["id"]))
+
+
+def validate_rows(rows):
+    """Check a drawing is 32 rows of 32 valid letters and not completely empty."""
+    if not isinstance(rows, list) or len(rows) != GRID_SIZE:
+        raise InvalidConnector("The drawing must have %d rows." % GRID_SIZE)
+    for row in rows:
+        if not isinstance(row, str) or len(row) != GRID_SIZE or any(c not in CELL_CODES for c in row):
+            raise InvalidConnector("Each drawing row must be %d valid letters." % GRID_SIZE)
+    if all(c == "." for row in rows for c in row):
+        raise InvalidConnector("The drawing is empty. Draw the connector first.")
+
+
+def validate_pins_and_gender(pins, gender):
+    if pins is not None:
+        if not isinstance(pins, int) or isinstance(pins, bool) or not 1 <= pins <= 500:
+            raise InvalidConnector("Pin count must be a whole number from 1 to 500, or blank.")
+    if gender not in GENDERS:
+        raise InvalidConnector("Unknown plug/socket value.")
 
 
 def validate(name, pins, gender, industry, rows):
@@ -43,20 +90,10 @@ def validate(name, pins, gender, industry, rows):
         raise InvalidConnector("Please give the connector a name.")
     if len(name) > 100:
         raise InvalidConnector("The name is too long (100 characters max).")
-    if pins is not None:
-        if not isinstance(pins, int) or isinstance(pins, bool) or not 1 <= pins <= 500:
-            raise InvalidConnector("Pin count must be a whole number from 1 to 500, or blank.")
-    if gender not in GENDERS:
-        raise InvalidConnector("Unknown plug/socket value.")
+    validate_pins_and_gender(pins, gender)
     if industry not in INDUSTRIES:
         raise InvalidConnector("Unknown industry value.")
-    if not isinstance(rows, list) or len(rows) != GRID_SIZE:
-        raise InvalidConnector("The drawing must have %d rows." % GRID_SIZE)
-    for row in rows:
-        if not isinstance(row, str) or len(row) != GRID_SIZE or any(c not in CELL_CODES for c in row):
-            raise InvalidConnector("Each drawing row must be %d valid letters." % GRID_SIZE)
-    if all(c == "." for row in rows for c in row):
-        raise InvalidConnector("The drawing is empty. Draw the connector first.")
+    validate_rows(rows)
     return name, pins, gender, industry
 
 
@@ -66,7 +103,7 @@ def add_connector(path, name, pins, gender, industry, rows):
     with connect(path) as connection:
         cursor = connection.execute(
             "INSERT INTO connectors (name, pins, gender, industry, grid) VALUES (?, ?, ?, ?, ?)",
-            (name, pins, gender, industry, "\n".join(rows)),
+            (name, pins, gender, industry, "\n".join(centre_rows(rows))),
         )
         return cursor.lastrowid
 
@@ -79,11 +116,11 @@ def _to_dict(row, include_rows):
     return result
 
 
-def list_connectors(path):
-    """Every connector, without the drawing (the list stays small and fast)."""
+def list_connectors(path, include_rows=False):
+    """Every connector. By default without the drawing, so the list stays small and fast."""
     with connect(path) as connection:
         rows = connection.execute("SELECT * FROM connectors ORDER BY name COLLATE NOCASE").fetchall()
-    return [_to_dict(r, include_rows=False) for r in rows]
+    return [_to_dict(r, include_rows=include_rows) for r in rows]
 
 
 def get_connector(path, connector_id):
