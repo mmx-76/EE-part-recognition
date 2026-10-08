@@ -5,13 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Connector Finder</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 20px; max-width: 700px; }
+    body { font-family: system-ui, sans-serif; margin: 20px auto; padding: 0 16px; max-width: 1080px; }
+    h1 { margin-bottom: 4px; }
+    h2 { font-size: 20px; margin: 0 0 6px; }
+    h3 { font-size: 16px; margin: 0 0 4px; }
+    .intro { margin-top: 0; }
+    .help { font-size: 13px; color: #555; margin: 4px 0 10px; }
+    .layout { display: grid; grid-template-columns: minmax(0, 600px) minmax(300px, 1fr); gap: 28px;
+              align-items: start; margin-bottom: 28px; }
+    #saveSection { margin-top: 20px; padding-top: 14px; border-top: 1px solid #ddd; }
+    @media (max-width: 960px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+    @media (pointer: coarse) {
+      .tool, .shape, button.action { min-height: 44px; }
+      select, input { min-height: 36px; }
+    }
     #tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
     .tool { padding: 8px 12px; border: 3px solid transparent; border-radius: 6px;
             cursor: pointer; font-size: 14px; }
     .tool.eraser { border: 3px dashed #c00; font-weight: bold; margin-right: 18px; }
     .tool.selected { border-color: #000; }
-    canvas { border: 1px solid #888; touch-action: none; cursor: crosshair; max-width: 100%; }
+    canvas { border: 1px solid #888; touch-action: none; cursor: crosshair; max-width: 100%; height: auto; display: block; }
     #shapes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px; }
     .shape { padding: 6px 10px; border: 2px solid #888; border-radius: 6px; background: #f4f4f4;
              cursor: pointer; font-size: 14px; }
@@ -29,10 +42,11 @@
     #searchButton { background: #1f6feb; color: #fff; border: 0; border-radius: 6px;
                     padding: 12px 22px; font-size: 16px; font-weight: bold; }
     #searchMessage { font-size: 14px; color: #b00020; }
+    #resultsHelp.hidden { display: none; }
     #results { padding-left: 24px; margin-bottom: 24px; }
     #results li { margin-bottom: 14px; }
     .match { display: flex; gap: 12px; align-items: flex-start; }
-    .match canvas { border: 1px solid #888; background: #fff; flex: none; cursor: default; }
+    .match canvas { display: block; border: 1px solid #888; background: #fff; flex: none; cursor: default; }
     .match .name { font-weight: bold; font-size: 16px; }
     .match .bar { height: 10px; background: #e3e3e3; border-radius: 5px; width: 200px; margin: 4px 0; }
     .match .bar div { height: 10px; background: #1f6feb; border-radius: 5px; }
@@ -52,7 +66,7 @@
     .badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
     .badge.draft { background: #fff3cd; color: #7a5a00; }
     .badge.checked { background: #d9f2e0; color: #1a7f37; }
-    #savedList canvas { border: 1px solid #aaa; flex: none; cursor: default; }
+    #savedList canvas { display: block; border: 1px solid #aaa; flex: none; cursor: default; }
     #savedList .info { flex: 1; min-width: 180px; }
     #savedList button { padding: 4px 10px; cursor: pointer; }
     #brush { margin-bottom: 12px; font-size: 14px; }
@@ -62,8 +76,13 @@
 </head>
 <body>
   <h1>Connector Finder</h1>
-  <p>Pick an element, then paint freehand, or pick a shape and drag a box on the grid.</p>
+  <p class="intro">Draw the front face of a connector on the grid, add anything else you know about it,
+    then press <strong>Find matching connectors</strong>.</p>
 
+  <main class="layout">
+    <section id="drawPanel">
+      <h2>1. Draw the connector face</h2>
+      <p class="help">Pick an element, then paint freehand, or pick a shape or pin pattern and drag a box on the grid.</p>
   <div id="tools"></div>
   <div id="shapes">
     <strong>Shape:</strong>
@@ -91,8 +110,28 @@
   <div id="counts"></div>
   <button class="action" id="clear">Clear grid</button>
 
+
+      <div id="saveSection">
+        <h3>Add this drawing to the database</h3>
+        <p class="help">Give it a name and save it, so future searches can find it. To fix an existing connector,
+          use <strong>Load to edit</strong> in the list below.</p>
+  <div id="save">
+    <div id="editingBanner"></div>
+    <label>Name
+      <input type="text" id="connectorName" maxlength="100" placeholder="e.g. DE-9 male">
+    </label>
+    <button class="action" id="saveButton">Save as new connector</button>
+    <button class="action" id="updateButton" hidden>Save changes</button>
+    <button class="action" id="stopEditingButton" hidden>Stop editing</button>
+    <span id="saveMessage"></span>
+  </div>
+
+      </div>
+    </section>
+
+    <section id="sidePanel">
   <fieldset id="details">
-    <legend>Connector details (all optional)</legend>
+    <legend>2. What else do you know? (all optional)</legend>
     <label>Number of pins/sockets
       <input type="number" id="detailPins" min="1" max="500" placeholder="unknown">
     </label>
@@ -119,22 +158,19 @@
     </label>
   </fieldset>
 
+
+      <h2>3. Results</h2>
   <div id="search">
-    <button class="action" id="searchButton">Search for matches</button>
+    <button class="action" id="searchButton">Find matching connectors</button>
     <span id="searchMessage"></span>
   </div>
-  <ol id="results"></ol>
+  
 
-  <div id="save">
-    <div id="editingBanner"></div>
-    <label>Name
-      <input type="text" id="connectorName" maxlength="100" placeholder="e.g. DE-9 male">
-    </label>
-    <button class="action" id="saveButton">Save as new connector</button>
-    <button class="action" id="updateButton" hidden>Save changes</button>
-    <button class="action" id="stopEditingButton" hidden>Stop editing</button>
-    <span id="saveMessage"></span>
-  </div>
+      <ol id="results"></ol>
+      <p id="resultsHelp" class="help">Matches appear here after you press the button. The percentage is how
+        closely each saved connector matches your drawing and details.</p>
+    </section>
+  </main>
 
   <h2>Saved connectors</h2>
   <div id="reviewSummary"></div>
@@ -664,6 +700,7 @@
         message.textContent = matches.error;
         return;
       }
+      document.getElementById("resultsHelp").classList.add("hidden");
       if (matches.length === 0) {
         message.textContent = "The database is empty, so there is nothing to match against yet.";
         return;
