@@ -114,6 +114,25 @@ class RealisticSearchQualityTests(unittest.TestCase):
         top1, top3 = self.accuracy(sloppy, "sloppy redraw")
         self.assertGreaterEqual(top3, 0.9)
 
+    def test_meaningless_drawings_get_low_scores(self):
+        rng = random.Random(7)
+        noise = [["."] * 32 for _ in range(32)]
+        for _ in range(120):
+            noise[rng.randrange(32)][rng.randrange(32)] = rng.choice("HSPOK")
+        best = matching.search(self.path, ["".join(row) for row in noise], limit=1)[0]
+        self.assertLess(best["score"], 0.2)
+
+    def test_a_42_pin_drawing_is_not_a_confident_match_for_anything(self):
+        rows = [["."] * 32 for _ in range(32)]
+        for col in range(3, 24):
+            rows[6][col] = rows[12][col] = "P"
+        for col in range(2, 26):
+            rows[3][col] = rows[15][col] = "S"
+        for r in range(3, 16):
+            rows[r][2] = rows[r][25] = "S"
+        best = matching.search(self.path, ["".join(r) for r in rows], pins=42, gender="plug", limit=1)[0]
+        self.assertLess(best["score"], 0.35)
+
     def test_outline_only_redraws_are_found(self):
         top1, top3 = self.accuracy(lambda rows, rng: outline_only(rows), "outline-only style")
         self.assertGreaterEqual(top3, 0.9)

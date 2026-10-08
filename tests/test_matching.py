@@ -78,22 +78,35 @@ class DrawingScoreTests(unittest.TestCase):
 
 
 class CombineTests(unittest.TestCase):
-    def test_unknown_details_are_ignored(self):
-        result = matching.combine(0.8, None, "unknown", 9, "plug")
-        self.assertAlmostEqual(result["score"], 0.8)
-        self.assertIsNone(result["pin_score"])
+    def test_unrelated_drawings_score_near_zero(self):
+        self.assertEqual(matching.combine(0.25, None, "unknown", None, "unknown")["score"], 0.0)
+        self.assertLess(matching.combine(0.40, None, "unknown", None, "unknown")["score"], 0.25)
 
-    def test_matching_details_lift_the_score(self):
-        with_details = matching.combine(0.8, 9, "plug", 9, "plug")["score"]
-        self.assertGreater(with_details, 0.8)
+    def test_identical_drawings_score_one(self):
+        self.assertAlmostEqual(matching.combine(1.0, None, "unknown", None, "unknown")["score"], 1.0)
+
+    def test_unknown_details_change_nothing(self):
+        plain = matching.combine(0.8, None, "unknown", 9, "plug")
+        self.assertAlmostEqual(plain["score"], matching.calibrate(0.8))
+        self.assertIsNone(plain["pin_score"])
+
+    def test_agreeing_details_do_not_inflate_a_poor_shape(self):
+        shape_only = matching.combine(0.4, None, "unknown", 9, "plug")["score"]
+        with_details = matching.combine(0.4, 9, "plug", 9, "plug")["score"]
+        self.assertAlmostEqual(with_details, shape_only)
 
     def test_wrong_details_lower_the_score(self):
-        self.assertLess(matching.combine(0.8, 9, "plug", 25, "socket")["score"], 0.8)
+        right = matching.combine(0.8, 9, "plug", 9, "plug")["score"]
+        self.assertLess(matching.combine(0.8, 9, "plug", 25, "plug")["score"], right)
+        self.assertLess(matching.combine(0.8, 9, "plug", 9, "socket")["score"], right)
 
     def test_close_pin_counts_beat_far_ones(self):
         close = matching.combine(0.8, 9, "unknown", 10, "unknown")["score"]
         far = matching.combine(0.8, 9, "unknown", 25, "unknown")["score"]
         self.assertGreater(close, far)
+
+    def test_42_pins_against_24_pins_is_a_poor_match(self):
+        self.assertLess(matching.combine(0.8, 42, "unknown", 24, "unknown")["score"], 0.35)
 
 
 class SearchTests(unittest.TestCase):
@@ -111,6 +124,7 @@ class SearchTests(unittest.TestCase):
         results = matching.search(self.path, d_sub_like(10, 10), pins=5, gender="plug")
         self.assertEqual([r["name"] for r in results], ["D-like", "Round-like"])
         self.assertGreater(results[0]["score"], 0.95)
+        self.assertLess(results[1]["score"], 0.3)  # a round connector is not a D-sub
 
     def test_connector_details_are_not_overwritten_by_scores(self):
         best = matching.search(self.path, d_sub_like(), pins=5, gender="plug")[0]

@@ -9,9 +9,12 @@ How a drawing is compared, in plain English:
    has the same cell, 0.7 if one cell away, 0.35 if two away, else 0 (see TOLERANCE). This forgives
    small wobbles and rounding. It is checked both ways round, so extra cells also cost points.
 4. AVERAGE the layers using LAYER_WEIGHTS. Layers empty in both drawings are skipped.
-5. Mix in the details (pin count, plug/socket) when BOTH sides know them.
+5. CALIBRATE: unrelated drawings still share some accidental overlap (about 0.25), so anything at
+   or below SHAPE_FLOOR counts as 0% and an exact copy as 100%.
+6. Apply the details as GUARDS: if both sides know the pin count (or plug/socket) and they
+   disagree, the score is multiplied down. Agreeing details never add points to a poor shape.
 
-Everything tunable is in the three constants below.
+Everything tunable is in the constants below.
 """
 import db
 
@@ -28,11 +31,16 @@ LAYERS = [
     ("socket",   "O",  1.0),
 ]
 
-# Share of the final score. The drawing dominates ("overall look first");
-# pin count and plug/socket only count when both connectors have them filled in.
-DRAWING_WEIGHT = 0.70
-PIN_COUNT_WEIGHT = 0.15
-GENDER_WEIGHT = 0.15
+# Raw drawing similarity at or below this counts as "nothing in common" (measured: unrelated
+# connector drawings score about 0.22 on average and rarely above 0.45).
+SHAPE_FLOOR = 0.25
+
+# How much the number of drawn contacts (pins/sockets) matters, as a weight like the layers.
+CONTACT_COUNT_WEIGHT = 4.0
+
+# Details only ever lower the score. These are the lowest multipliers (all details wrong).
+PIN_COUNT_FLOOR = 0.2        # a hopelessly wrong pin count keeps only 20% of the shape score
+GENDER_MISMATCH_FACTOR = 0.6  # plug vs socket mix-up keeps 60%
 
 TOLERANCE = [1.0, 0.7, 0.35]  # credit for a cell that is 0, 1 or 2 cells from one in the other drawing
 
@@ -107,7 +115,9 @@ def prepare(rows):
     normal = normalise(rows)
     if normal is None:
         return None
-    return {name: _layer(normal, letters) for name, letters, _ in LAYERS}
+    prepared = {name: _layer(normal, letters) for name, letters, _ in LAYERS}
+    prepared["contact_total"] = sum(row.count("P") + row.count("O") for row in rows)
+    return prepared
 
 
 def _coverage(cells, credit):
@@ -130,25 +140,35 @@ def drawing_score(prepared_a, prepared_b):
         similarity = (_coverage(cells_a, credit_b) + _coverage(cells_b, credit_a)) / 2
         total += weight * similarity
         weight_sum += weight
+    contacts_a, contacts_b = prepared_a["contact_total"], prepared_b["contact_total"]
+    if contacts_a or contacts_b:  # 42 drawn pins is not a match for a 24 pin connector
+        total += CONTACT_COUNT_WEIGHT * (min(contacts_a, contacts_b) / max(contacts_a, contacts_b)) ** 2
+        weight_sum += CONTACT_COUNT_WEIGHT
     return total / weight_sum if weight_sum else 0.0
 
 
+def calibrate(raw):
+    """Stretch raw similarity so 'nothing in common' reads 0 and 'identical' reads 1."""
+    return max(0.0, (raw - SHAPE_FLOOR) / (1.0 - SHAPE_FLOOR))
+
+
 def pin_count_score(a, b):
-    return 1.0 - abs(a - b) / max(a, b)
+    """1.0 for the same count; falls away quickly (42 pins vs 24 pins scores about 0.33)."""
+    return (min(a, b) / max(a, b)) ** 2
 
 
-def combine(drawing, query_pins, query_gender, other_pins, other_gender):
-    """Mix the drawing score with whichever details both sides know. Returns a breakdown."""
-    parts = [(DRAWING_WEIGHT, drawing)]
+def combine(raw_drawing, query_pins, query_gender, other_pins, other_gender):
+    """Turn the raw drawing similarity and the details into the final score and its breakdown."""
+    shape = calibrate(raw_drawing)
+    score = shape
     pin_part = gender_part = None
     if query_pins is not None and other_pins is not None:
         pin_part = pin_count_score(query_pins, other_pins)
-        parts.append((PIN_COUNT_WEIGHT, pin_part))
+        score *= PIN_COUNT_FLOOR + (1 - PIN_COUNT_FLOOR) * pin_part
     if query_gender != "unknown" and other_gender != "unknown":
         gender_part = 1.0 if query_gender == other_gender else 0.0
-        parts.append((GENDER_WEIGHT, gender_part))
-    score = sum(w * s for w, s in parts) / sum(w for w, _ in parts)
-    return {"score": score, "drawing_score": drawing, "pin_score": pin_part,
+        score *= 1.0 if gender_part else GENDER_MISMATCH_FACTOR
+    return {"score": score, "drawing_score": shape, "pin_score": pin_part,
             "gender_score": gender_part}
 
 

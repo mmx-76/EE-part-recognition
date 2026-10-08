@@ -30,10 +30,38 @@ def connect(path):
     return connection
 
 
+def centre_rows(rows):
+    """Move a drawing (without resizing it) so it sits in the middle of the grid.
+
+    Every saved connector goes through this, so thumbnails and loaded drawings are always
+    centred, wherever on the canvas the original was drawn."""
+    drawn = [(r, c) for r, row in enumerate(rows) for c, ch in enumerate(row) if ch != "."]
+    if not drawn:
+        return list(rows)
+    top = min(r for r, _ in drawn)
+    bottom = max(r for r, _ in drawn)
+    left = min(c for _, c in drawn)
+    right = max(c for _, c in drawn)
+    move_down = (GRID_SIZE - (bottom - top + 1)) // 2 - top
+    move_right = (GRID_SIZE - (right - left + 1)) // 2 - left
+    result = [["."] * GRID_SIZE for _ in range(GRID_SIZE)]
+    for r, c in drawn:
+        result[r + move_down][c + move_right] = rows[r][c]
+    return ["".join(row) for row in result]
+
+
 def init_db(path):
-    """Create the table if it doesn't exist yet. Safe to call every time the app starts."""
+    """Create the table if it doesn't exist yet, and centre any drawing that isn't centred.
+
+    Safe to call every time the app starts."""
     with connect(path) as connection:
         connection.executescript(SCHEMA)
+        for row in connection.execute("SELECT id, grid FROM connectors").fetchall():
+            current = row["grid"].split("\n")
+            centred = centre_rows(current)
+            if centred != current:
+                connection.execute("UPDATE connectors SET grid = ? WHERE id = ?",
+                                   ("\n".join(centred), row["id"]))
 
 
 def validate_rows(rows):
@@ -75,7 +103,7 @@ def add_connector(path, name, pins, gender, industry, rows):
     with connect(path) as connection:
         cursor = connection.execute(
             "INSERT INTO connectors (name, pins, gender, industry, grid) VALUES (?, ?, ?, ?, ?)",
-            (name, pins, gender, industry, "\n".join(rows)),
+            (name, pins, gender, industry, "\n".join(centre_rows(rows))),
         )
         return cursor.lastrowid
 
